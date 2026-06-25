@@ -119,7 +119,7 @@ public struct ConsolePreferences: Equatable {
         accent: ConsoleAccent = .mint,
         density: ConsoleDensity = .comfortable,
         expandedWidth: Int = 760,
-        expandedHeight: Int = 540,
+        expandedHeight: Int = 220,
         topOffset: Int = 6
     ) {
         self.accent = accent

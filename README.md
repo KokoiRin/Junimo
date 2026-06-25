@@ -52,6 +52,15 @@ scripts/build_app.sh
 scripts/launch_app.sh
 ```
 
+Build local distribution artifacts:
+
+```bash
+scripts/package_app.sh
+```
+
+The generated `.zip` and `.pkg` files are written to `.build/dist/`. See
+[docs/distribution.md](docs/distribution.md) for signing and notarization notes.
+
 Run the full available local verification suite:
 
 ```bash

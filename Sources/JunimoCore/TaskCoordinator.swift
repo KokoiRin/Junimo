@@ -5,8 +5,6 @@ import Foundation
 /// SwiftUI views call this type for user intent; C++23 core/adapter boundaries
 /// produce domain results. It avoids AppKit window ownership and shell work.
 public final class TaskCoordinator: ObservableObject {
-    public static let collapseDelay: TimeInterval = 1.25
-
     @Published public private(set) var isExpanded: Bool = false {
         didSet {
             if oldValue != isExpanded {
@@ -35,7 +33,6 @@ public final class TaskCoordinator: ObservableObject {
     private let commandCatalogCore: CommandCatalogCore
     private let sessionTimelineCore: SessionTimelineCore
     private let preferencesCore: PreferencesCore
-    private var pendingCollapseAt: Date?
     private var nowProvider: () -> Date
 
     public init(
@@ -74,13 +71,11 @@ public final class TaskCoordinator: ObservableObject {
     }
 
     public func pointerEntered(at date: Date? = nil) {
-        pendingCollapseAt = nil
         isExpanded = true
     }
 
     public func pointerExited(at date: Date? = nil) {
-        let referenceDate = date ?? nowProvider()
-        pendingCollapseAt = referenceDate.addingTimeInterval(Self.collapseDelay)
+        isExpanded = false
     }
 
     public func advanceTime(to date: Date) {
@@ -88,10 +83,6 @@ public final class TaskCoordinator: ObservableObject {
             completePomodoro(session, now: date)
         }
 
-        if let pendingCollapseAt, date >= pendingCollapseAt {
-            self.pendingCollapseAt = nil
-            isExpanded = false
-        }
     }
 
     public func performAction(id: String, now: Date? = nil) {

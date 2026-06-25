@@ -5,6 +5,11 @@ import SwiftUI
 struct JunimoSurfaceView: View {
     @ObservedObject var coordinator: TaskCoordinator
     @State private var commandText = ""
+    @State private var now = Date()
+    @State private var promptCountdownEndsAt: Date?
+    @State private var promptAttentionActive = false
+    @State private var promptProminentEndsAt: Date?
+    @State private var promptPulse = false
 
     var body: some View {
         Group {
@@ -15,109 +20,202 @@ struct JunimoSurfaceView: View {
                         height: CGFloat(coordinator.preferences.expandedHeight)
                     )
             } else {
-                collapsedCapsule
-                    .frame(width: 236, height: 46)
+                collapsedTriggerStrip
+                    .frame(width: 420, height: 28)
             }
         }
+        .contentShape(Rectangle())
         .onHover { isInside in
             if isInside {
+                clearPromptAttention()
                 coordinator.pointerEntered()
             } else {
                 coordinator.pointerExited()
-                scheduleDelayedCollapse()
             }
         }
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
+        .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { date in
+            now = date
             coordinator.advanceTime(to: date)
+            updatePromptState(at: date)
         }
     }
 
-    private var collapsedCapsule: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "leaf.fill")
-                .font(.system(size: 15, weight: .semibold))
-            Text("Junimo")
-                .font(.system(size: 14, weight: .semibold))
-            Divider()
-                .frame(height: 18)
-            statusDot(for: coordinator.agents.contains(where: { $0.status == .running }) ? .running : .idle)
-            Text(runningSummary)
-                .font(.system(size: 12, weight: .medium))
-                .lineLimit(1)
+    private var collapsedTriggerStrip: some View {
+        HStack(spacing: 16) {
+            launchSprite
+                .help("Junimo is running")
+
+            Color.clear
+                .frame(width: 208, height: 28)
+
+            statusTriggerIcon
+                .help(runningSummary)
         }
-        .padding(.horizontal, 16)
-        .foregroundStyle(.primary)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(accentColor.opacity(0.45), lineWidth: 1))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.001))
+        .contentShape(Rectangle())
+        .overlay {
+            collapsedPromptEffect
+        }
+    }
+
+    private var collapsedPromptEffect: some View {
+        ZStack {
+            if promptAttentionActive {
+                Capsule()
+                    .stroke(accentColor.opacity(promptIsProminent ? (promptPulse ? 0.88 : 0.35) : 0.20), lineWidth: promptIsProminent ? (promptPulse ? 2.5 : 1.2) : 1)
+                    .frame(width: promptIsProminent ? 360 : 300, height: promptIsProminent ? 28 : 22)
+                    .shadow(color: accentColor.opacity(promptIsProminent ? (promptPulse ? 0.85 : 0.28) : 0.18), radius: promptIsProminent ? (promptPulse ? 18 : 6) : 5)
+
+                Capsule()
+                    .stroke(Color.white.opacity(promptIsProminent ? (promptPulse ? 0.42 : 0.10) : 0.08), lineWidth: 1)
+                    .frame(width: promptIsProminent ? 260 : 210, height: 18)
+
+                HStack(spacing: 214) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: promptIsProminent ? 13 : 9, weight: .bold))
+                        .foregroundStyle(accentColor)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: promptIsProminent ? 13 : 9, weight: .bold))
+                        .foregroundStyle(accentColor)
+                }
+                .opacity(promptIsProminent ? (promptPulse ? 1 : 0.45) : 0.42)
+            }
+
+            if let remaining = promptCountdownRemaining {
+                Text("\(remaining)")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(accentColor)
+                    .frame(width: 18, height: 18)
+                    .background(Color.black.opacity(0.86), in: Circle())
+                    .overlay(Circle().stroke(accentColor.opacity(0.55), lineWidth: 1))
+                    .offset(x: 164)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var launchSprite: some View {
+        ZStack {
+            Capsule()
+                .fill(Color.black.opacity(0.82))
+                .frame(width: 36, height: 28)
+                .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 1))
+
+            spriteImage
+                .frame(width: 30, height: 28)
+        }
+        .shadow(color: accentColor.opacity(0.24), radius: 8, x: 0, y: 2)
+    }
+
+    private var statusTriggerIcon: some View {
+        ZStack {
+            Circle()
+                .fill(Color.black.opacity(0.82))
+                .frame(width: 24, height: 24)
+                .overlay(Circle().stroke(Color.white.opacity(0.10), lineWidth: 1))
+
+            Image(systemName: coordinator.agents.contains(where: { $0.status == .running }) ? "sparkles" : "moon.stars.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(accentColor)
+        }
+        .shadow(color: .black.opacity(0.28), radius: 8, x: 0, y: 3)
+    }
+
+    private var spriteImage: some View {
+        Group {
+            if let image = bundledSprite {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.none)
+                    .scaledToFit()
+            } else {
+                PixelSprite(color: accentColor)
+            }
+        }
     }
 
     private var expandedConsole: some View {
-        VStack(spacing: 0) {
-            header
-                .padding(.horizontal, 18)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
-                .padding(.trailing, 36)
+        ZStack(alignment: .bottom) {
+            islandBackground
 
-            Divider().opacity(0.45)
+            VStack(spacing: 0) {
+                islandHeader
+                    .padding(.horizontal, 26)
+                    .padding(.top, 18)
 
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 12) {
-                    projectProfileSection
-                    agentsSection
-                    pomodoroSection
-                }
-                .frame(width: 260)
+                Spacer(minLength: 0)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    commandPaletteSection
-                    sessionsSection
-                    activitySection
-                }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                islandCenterStage
+
+                Spacer(minLength: 0)
+
+                bottomDock
+                    .padding(.horizontal, 78)
+                    .padding(.bottom, 16)
             }
-            .padding(18)
         }
-        .foregroundStyle(.primary)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(accentColor.opacity(0.35), lineWidth: 1))
+        .foregroundStyle(.white.opacity(0.94))
+        .clipShape(RoundedRectangle(cornerRadius: 36, style: .continuous))
+        .shadow(color: .black.opacity(0.55), radius: 28, x: 0, y: 18)
         .overlay(alignment: .topTrailing) {
             quitButton
-                .padding(.top, 12)
-                .padding(.trailing, 12)
+                .padding(.top, 18)
+                .padding(.trailing, 22)
         }
     }
 
-    private var header: some View {
+    private var islandBackground: some View {
+        RoundedRectangle(cornerRadius: 36, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.black,
+                        Color(red: 0.015, green: 0.015, blue: 0.018),
+                        Color.black
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 36, style: .continuous)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
+            )
+    }
+
+    private var islandHeader: some View {
         HStack {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 Image(systemName: "leaf.fill")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(accentColor)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Junimo")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text("Local agent console")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(coordinator.projectProfile.stack)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.48))
+                        .lineLimit(1)
                 }
             }
 
             Spacer()
 
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 ForEach(ConsoleDensity.allCases) { density in
                     Button {
                         coordinator.setDensity(density)
                     } label: {
                         Text(density.label)
-                            .font(.system(size: 11, weight: .semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
+                            .font(.system(size: 10, weight: .semibold))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
                     }
                     .buttonStyle(.plain)
                     .background(
-                        coordinator.preferences.density == density ? accentColor.opacity(0.20) : Color.primary.opacity(0.06),
+                        coordinator.preferences.density == density ? accentColor.opacity(0.28) : Color.white.opacity(0.08),
                         in: Capsule()
                     )
                     .help(density.label)
@@ -129,10 +227,10 @@ struct JunimoSurfaceView: View {
                     } label: {
                         Circle()
                             .fill(color(for: accent))
-                            .frame(width: 16, height: 16)
+                            .frame(width: 15, height: 15)
                             .overlay(
                                 Circle().stroke(
-                                    coordinator.theme.accent == accent ? Color.primary : Color.clear,
+                                    coordinator.theme.accent == accent ? Color.white : Color.clear,
                                     lineWidth: 2
                                 )
                             )
@@ -145,17 +243,134 @@ struct JunimoSurfaceView: View {
         }
     }
 
+    private var islandCenterStage: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(accentColor.opacity(0.18))
+                    .frame(width: 54, height: 54)
+                Image(systemName: centerStageIcon)
+                    .font(.system(size: 32, weight: .bold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(accentColor)
+            }
+
+            VStack(spacing: 6) {
+                Text(centerStageTitle)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.86))
+                Text(centerStageSubtitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.44))
+                    .lineLimit(1)
+            }
+        }
+        .padding(.top, 8)
+    }
+
+    private var bottomDock: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                ForEach(coordinator.actions) { action in
+                    dockButton(icon: icon(for: action.kind), title: action.title) {
+                        coordinator.performAction(id: action.id)
+                    }
+                }
+            }
+
+            dockDivider
+
+            HStack(spacing: 8) {
+                Button {
+                    coordinator.updateCommandQuery("focus")
+                    coordinator.performCommand(id: "pomodoro-25")
+                } label: {
+                    Label("25m", systemImage: "timer")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 34, height: 30)
+                .background(Color.white.opacity(0.08), in: Circle())
+                .help("Start 25 minute focus")
+
+                if let session = coordinator.activePomodoro {
+                    Text(remainingText(for: session, at: now))
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(accentColor)
+                        .monospacedDigit()
+                        .frame(width: 54, alignment: .leading)
+                } else {
+                    Text("Ready")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.58))
+                        .frame(width: 54, alignment: .leading)
+                }
+
+                Button {
+                    startPromptCountdown(at: now)
+                    coordinator.pointerExited()
+                } label: {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 34, height: 30)
+                }
+                .buttonStyle(.plain)
+                .background(promptCountdownEndsAt == nil ? Color.white.opacity(0.08) : accentColor.opacity(0.22), in: Circle())
+                .foregroundStyle(promptCountdownEndsAt == nil ? Color.white.opacity(0.88) : accentColor)
+                .help("Preview task completion alert")
+            }
+
+            dockDivider
+
+            HStack(spacing: 8) {
+                ForEach(coordinator.agents) { agent in
+                    HStack(spacing: 5) {
+                        statusDot(for: agent.status)
+                        Text(agent.name.prefix(1))
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .frame(width: 32, height: 28)
+                    .background(Color.white.opacity(0.07), in: Capsule())
+                    .help("\(agent.name): \(agent.status.label)")
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.black.opacity(0.86), in: Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 1))
+    }
+
+    private var dockDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.16))
+            .frame(width: 1, height: 24)
+    }
+
+    private func dockButton(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 34, height: 30)
+        }
+        .buttonStyle(.plain)
+        .background(Color.white.opacity(0.08), in: Circle())
+        .foregroundStyle(.white.opacity(0.88))
+        .help(title)
+    }
+
     private var quitButton: some View {
         Button {
             NSApp.terminate(nil)
         } label: {
-            Image(systemName: "power")
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 28, height: 28)
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .bold))
+                .frame(width: 26, height: 26)
         }
         .buttonStyle(.plain)
-        .background(Color.red.opacity(0.16), in: Circle())
-        .foregroundStyle(.red)
+        .background(Color.white.opacity(0.08), in: Circle())
+        .foregroundStyle(.white.opacity(0.78))
         .help("Quit Junimo")
     }
 
@@ -301,7 +516,7 @@ struct JunimoSurfaceView: View {
             VStack(alignment: .leading, spacing: 10) {
                 if let session = coordinator.activePomodoro {
                     HStack {
-                        Text(remainingText(for: session))
+                        Text(remainingText(for: session, at: now))
                             .font(.system(size: 22, weight: .semibold, design: .rounded))
                         Spacer()
                         Button {
@@ -415,8 +630,59 @@ struct JunimoSurfaceView: View {
         coordinator.agents.contains(where: { $0.status == .running }) ? "Active" : "Ready"
     }
 
+    private var centerStageIcon: String {
+        if coordinator.activePomodoro != nil {
+            return "timer"
+        }
+        if coordinator.sessions.isEmpty {
+            return "face.smiling.inverse"
+        }
+        return "sparkles"
+    }
+
+    private var centerStageTitle: String {
+        if let session = coordinator.activePomodoro {
+            return remainingText(for: session, at: now)
+        }
+        if coordinator.sessions.isEmpty {
+            return "暂无会话"
+        }
+        return coordinator.sessions.first?.title ?? "Junimo"
+    }
+
+    private var centerStageSubtitle: String {
+        if let session = coordinator.activePomodoro {
+            return "Focus until \(session.endsAt.formatted(date: .omitted, time: .shortened))"
+        }
+        if coordinator.sessions.isEmpty {
+            return "Hover to keep the island open"
+        }
+        return coordinator.sessions.first?.detail ?? runningSummary
+    }
+
     private var accentColor: Color {
         color(for: coordinator.theme.accent)
+    }
+
+    private var promptCountdownRemaining: Int? {
+        guard let promptCountdownEndsAt else {
+            return nil
+        }
+        return max(1, Int(ceil(promptCountdownEndsAt.timeIntervalSince(now))))
+    }
+
+    private var promptIsProminent: Bool {
+        guard let promptProminentEndsAt else {
+            return false
+        }
+        return now < promptProminentEndsAt
+    }
+
+    private var bundledSprite: NSImage? {
+        guard let url = Bundle.main.url(forResource: "junimo-junimo-sprite", withExtension: "png") else {
+            return nil
+        }
+        return NSImage(contentsOf: url)
     }
 
     private func sectionTitle(_ title: String, systemImage: String) -> some View {
@@ -477,16 +743,88 @@ struct JunimoSurfaceView: View {
         }
     }
 
-    private func remainingText(for session: PomodoroSession) -> String {
-        let remaining = Int(ceil(session.remaining(at: Date())))
+    private func remainingText(for session: PomodoroSession, at date: Date) -> String {
+        let remaining = Int(ceil(session.remaining(at: date)))
         let minutes = remaining / 60
         let seconds = remaining % 60
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
-    private func scheduleDelayedCollapse() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + TaskCoordinator.collapseDelay + 0.05) {
-            coordinator.advanceTime(to: Date())
+    private func startPromptCountdown(at date: Date) {
+        promptAttentionActive = false
+        promptProminentEndsAt = nil
+        promptPulse = false
+        promptCountdownEndsAt = date.addingTimeInterval(3)
+    }
+
+    private func updatePromptState(at date: Date) {
+        if let promptCountdownEndsAt, date >= promptCountdownEndsAt {
+            self.promptCountdownEndsAt = nil
+            promptAttentionActive = true
+            promptProminentEndsAt = date.addingTimeInterval(1.8)
+            promptPulse = false
+            DispatchQueue.main.async {
+                withAnimation(.easeInOut(duration: 0.32).repeatCount(5, autoreverses: true)) {
+                    promptPulse = true
+                }
+            }
+            NSSound.beep()
+        }
+
+        if let promptProminentEndsAt, date >= promptProminentEndsAt {
+            self.promptProminentEndsAt = nil
+            promptPulse = false
+        }
+    }
+
+    private func clearPromptAttention() {
+        promptCountdownEndsAt = nil
+        promptAttentionActive = false
+        promptProminentEndsAt = nil
+        promptPulse = false
+    }
+
+}
+
+private struct PixelSprite: View {
+    var color: Color
+
+    private let rows: [[Int]] = [
+        [0, 0, 1, 1, 1, 1, 0, 0],
+        [0, 1, 1, 1, 1, 1, 1, 0],
+        [1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 2, 1, 1, 2, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1],
+        [0, 1, 1, 1, 1, 1, 1, 0],
+        [0, 0, 1, 0, 0, 1, 0, 0],
+        [0, 1, 0, 0, 0, 0, 1, 0]
+    ]
+
+    var body: some View {
+        GeometryReader { proxy in
+            let cell = min(proxy.size.width, proxy.size.height) / 8
+            VStack(spacing: 0) {
+                ForEach(rows.indices, id: \.self) { row in
+                    HStack(spacing: 0) {
+                        ForEach(rows[row].indices, id: \.self) { column in
+                            Rectangle()
+                                .fill(fillColor(for: rows[row][column]))
+                                .frame(width: cell, height: cell)
+                        }
+                    }
+                }
+            }
+            .frame(width: cell * 8, height: cell * 8)
+            .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+        }
+        .aspectRatio(1, contentMode: .fit)
+    }
+
+    private func fillColor(for value: Int) -> Color {
+        switch value {
+        case 1: color
+        case 2: .black.opacity(0.86)
+        default: .clear
         }
     }
 }

@@ -108,7 +108,7 @@ const UiPreferences& TaskEngine::set_density(std::string_view density) {
     } else if (value == "comfortable") {
         ui_preferences_.density = value;
         ui_preferences_.expanded_width = 760;
-        ui_preferences_.expanded_height = 540;
+        ui_preferences_.expanded_height = 220;
     }
     return ui_preferences_;
 }
