@@ -83,8 +83,8 @@ adjusting Gatekeeper settings.
 Pushing a version tag runs `.github/workflows/release.yml`:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v<version>
+git push origin v<version>
 ```
 
 The workflow verifies it is running on an Apple Silicon macOS runner, verifies

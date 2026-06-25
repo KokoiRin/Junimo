@@ -77,8 +77,8 @@ The generated `.zip` and `.pkg` files are written to `.build/dist/`. See
 Publish a GitHub Release from a tag:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v<version>
+git push origin v<version>
 ```
 
 The release workflow builds and uploads Apple Silicon `.zip` and `.pkg`
