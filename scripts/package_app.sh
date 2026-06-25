@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/.build/dist"
 mkdir -p "$DIST_DIR"
+rm -f "$DIST_DIR"/Junimo-*.zip "$DIST_DIR"/Junimo-*.pkg
 export COPYFILE_DISABLE=1
 
 APP_DIR="$("$ROOT_DIR/scripts/build_app.sh")"
@@ -25,6 +26,8 @@ IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_COPY/
 ARCHS="$(lipo -archs "$APP_COPY/Contents/MacOS/Junimo" | tr ' ' '-')"
 ZIP_PATH="$DIST_DIR/Junimo-${VERSION}-macos-${ARCHS}.zip"
 PKG_PATH="$DIST_DIR/Junimo-${VERSION}-macos-${ARCHS}.pkg"
+STABLE_ZIP_PATH="$DIST_DIR/Junimo-macos-${ARCHS}.zip"
+STABLE_PKG_PATH="$DIST_DIR/Junimo-macos-${ARCHS}.pkg"
 
 ditto -c -k --keepParent --norsrc "$APP_COPY" "$ZIP_PATH"
 unzip -t "$ZIP_PATH" >/dev/null
@@ -46,5 +49,10 @@ if [[ -n "${INSTALLER_SIGN_IDENTITY:-}" ]]; then
   PKG_PATH="$SIGNED_PKG_PATH"
 fi
 
+cp "$ZIP_PATH" "$STABLE_ZIP_PATH"
+cp "$PKG_PATH" "$STABLE_PKG_PATH"
+
 echo "$ZIP_PATH"
 echo "$PKG_PATH"
+echo "$STABLE_ZIP_PATH"
+echo "$STABLE_PKG_PATH"

@@ -17,6 +17,8 @@ swiftc \
   -ljunimo_core_bridge \
   -emit-module-path "$BUILD_DIR/JunimoCore.swiftmodule" \
   -o "$BUILD_DIR/libJunimoCore.dylib" \
+  -Xlinker -install_name \
+  -Xlinker "@rpath/libJunimoCore.dylib" \
   -Xlinker -rpath \
   -Xlinker "$BUILD_DIR"
 

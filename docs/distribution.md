@@ -10,15 +10,16 @@ On an Apple Silicon Mac, an agent can install the latest published release with:
 curl -fsSL https://raw.githubusercontent.com/KokoiRin/Junimo/main/scripts/install_latest.sh | bash
 ```
 
-The script downloads the latest GitHub Release zip asset matching
-`macos-arm64.zip`, installs `Junimo.app` into `/Applications` when writable, and
-falls back to `~/Applications`.
+The script downloads the latest GitHub Release zip from the stable release asset
+URL, without using the GitHub API, installs `Junimo.app` into `/Applications`
+when writable, and falls back to `~/Applications`.
 
 Useful overrides:
 
 ```bash
 JUNIMO_INSTALL_DIR="$HOME/Applications" scripts/install_latest.sh
 JUNIMO_REPO="KokoiRin/Junimo" scripts/install_latest.sh
+JUNIMO_ASSET_NAME="Junimo-macos-arm64.zip" scripts/install_latest.sh
 JUNIMO_NO_OPEN=1 scripts/install_latest.sh
 ```
 
@@ -38,6 +39,8 @@ The script currently creates:
 
 - `Junimo-<version>-macos-<arch>.zip`: drag-copy app archive.
 - `Junimo-<version>-macos-<arch>.pkg`: installer that places `Junimo.app` in `/Applications`.
+- `Junimo-macos-<arch>.zip`: stable-name copy for the latest-release installer.
+- `Junimo-macos-<arch>.pkg`: stable-name copy for direct downloads.
 
 ## Signing
 

@@ -11,9 +11,10 @@ from source:
 curl -fsSL https://raw.githubusercontent.com/KokoiRin/Junimo/main/scripts/install_latest.sh | bash
 ```
 
-The installer downloads the latest GitHub Release zip, copies `Junimo.app` into
-`/Applications` when possible, falls back to `~/Applications`, removes the
-download quarantine attribute, and launches the app.
+The installer downloads the latest GitHub Release zip directly, without using
+the GitHub API, copies `Junimo.app` into `/Applications` when possible, falls
+back to `~/Applications`, removes the download quarantine attribute, and
+launches the app.
 
 ## Current Capabilities
 
