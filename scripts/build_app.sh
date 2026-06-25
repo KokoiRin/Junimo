@@ -8,13 +8,16 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 BUILD_DIR="$ROOT_DIR/.build/app-build"
+DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+SWIFT_TARGET="${SWIFT_TARGET:-arm64-apple-macosx${DEPLOYMENT_TARGET}}"
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$FRAMEWORKS_DIR" "$RESOURCES_DIR" "$BUILD_DIR"
 
-"$ROOT_DIR/scripts/build_core_bridge.sh" "$FRAMEWORKS_DIR" >/dev/null
+MACOSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET" "$ROOT_DIR/scripts/build_core_bridge.sh" "$FRAMEWORKS_DIR" >/dev/null
 
 swiftc \
+  -target "$SWIFT_TARGET" \
   -enable-testing \
   -emit-library \
   -emit-module \
@@ -28,6 +31,7 @@ swiftc \
   -Xlinker "@loader_path"
 
 swiftc \
+  -target "$SWIFT_TARGET" \
   -I "$BUILD_DIR" \
   -L "$FRAMEWORKS_DIR" \
   -lJunimoCore \
@@ -41,7 +45,7 @@ swiftc \
   -Xlinker -rpath \
   -Xlinker "@executable_path/../Frameworks"
 
-cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
+cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -63,7 +67,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
-  <string>14.0</string>
+  <string>${DEPLOYMENT_TARGET}</string>
   <key>LSUIElement</key>
   <true/>
   <key>NSHighResolutionCapable</key>
@@ -71,5 +75,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+if [[ -d "$ROOT_DIR/Sources/Junimo/Resources" ]]; then
+  cp "$ROOT_DIR"/Sources/Junimo/Resources/* "$RESOURCES_DIR"/
+fi
 
 echo "$APP_DIR"
