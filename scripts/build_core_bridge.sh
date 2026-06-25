@@ -16,6 +16,7 @@ CXXFLAGS=(
 
 "$CXX" "${CXXFLAGS[@]}" \
   -dynamiclib \
+  -install_name "@rpath/libjunimo_core_bridge.dylib" \
   "$ROOT_DIR/Core/src/models.cpp" \
   "$ROOT_DIR/Core/src/task_engine.cpp" \
   "$ROOT_DIR/Core/src/c_api.cpp" \

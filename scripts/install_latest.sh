@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO="${JUNIMO_REPO:-KokoiRin/Junimo}"
 APP_NAME="Junimo.app"
-ASSET_PATTERN="${JUNIMO_ASSET_PATTERN:-macos-arm64.zip}"
+ASSET_NAME="${JUNIMO_ASSET_NAME:-Junimo-macos-arm64.zip}"
 
 if [[ "$(uname -m)" != "arm64" ]]; then
   echo "Junimo release installer currently supports Apple Silicon Macs only." >&2
@@ -20,28 +20,14 @@ done
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/junimo-install.XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
-API_URL="https://api.github.com/repos/$REPO/releases/latest"
-RELEASE_JSON="$WORK_DIR/release.json"
 CURL_ARGS=(-fsSL --retry 3)
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  CURL_ARGS+=(-H "Authorization: Bearer $GITHUB_TOKEN")
-fi
-
-curl "${CURL_ARGS[@]}" "$API_URL" -o "$RELEASE_JSON"
-
-TAG_NAME="$(awk -F '"' '/"tag_name"/ { print $4; exit }' "$RELEASE_JSON")"
-ASSET_URL="$(awk -F '"' -v pattern="$ASSET_PATTERN" '/"browser_download_url"/ { if ($4 ~ pattern) { print $4; exit } }' "$RELEASE_JSON")"
-
-if [[ -z "$ASSET_URL" ]]; then
-  echo "Could not find a release asset matching '$ASSET_PATTERN' in $REPO latest release." >&2
-  exit 1
-fi
 
 ZIP_PATH="$WORK_DIR/junimo.zip"
 EXTRACT_DIR="$WORK_DIR/extract"
 mkdir -p "$EXTRACT_DIR"
 
-echo "Downloading Junimo ${TAG_NAME:-latest}..."
+ASSET_URL="${JUNIMO_ASSET_URL:-https://github.com/$REPO/releases/latest/download/$ASSET_NAME}"
+echo "Downloading Junimo latest release..."
 curl "${CURL_ARGS[@]}" -L "$ASSET_URL" -o "$ZIP_PATH"
 ditto -x -k "$ZIP_PATH" "$EXTRACT_DIR"
 
