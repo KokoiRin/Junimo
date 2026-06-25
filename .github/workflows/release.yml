@@ -1,0 +1,35 @@
+name: Release Junimo
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build macOS arm64 release
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Confirm Apple Silicon runner
+        run: test "$(uname -m)" = "arm64"
+
+      - name: Verify local build
+        run: scripts/verify.sh
+
+      - name: Package Junimo
+        run: scripts/package_app.sh
+
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: false
+          files: |
+            .build/dist/Junimo-*.zip
+            .build/dist/Junimo-*.pkg

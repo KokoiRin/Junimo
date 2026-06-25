@@ -2,6 +2,19 @@
 
 Junimo is a native macOS desktop tool that lives near the top-center screen area. The first slice provides a collapsed capsule that expands on hover into a lightweight local agent console.
 
+## Install Latest Release
+
+On an Apple Silicon Mac, install the latest published release without building
+from source:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/KokoiRin/Junimo/main/scripts/install_latest.sh | bash
+```
+
+The installer downloads the latest GitHub Release zip, copies `Junimo.app` into
+`/Applications` when possible, falls back to `~/Applications`, removes the
+download quarantine attribute, and launches the app.
+
 ## Current Capabilities
 
 - Top-center non-activating AppKit `NSPanel` hosted with SwiftUI.
@@ -60,6 +73,16 @@ scripts/package_app.sh
 
 The generated `.zip` and `.pkg` files are written to `.build/dist/`. See
 [docs/distribution.md](docs/distribution.md) for signing and notarization notes.
+
+Publish a GitHub Release from a tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow builds and uploads Apple Silicon `.zip` and `.pkg`
+artifacts.
 
 Run the full available local verification suite:
 
