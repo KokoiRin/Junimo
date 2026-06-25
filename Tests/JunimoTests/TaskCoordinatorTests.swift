@@ -7,6 +7,7 @@ final class TaskCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.preferences.accent, .mint)
         XCTAssertEqual(coordinator.preferences.expandedWidth, 760)
+        XCTAssertEqual(coordinator.preferences.expandedHeight, 220)
 
         coordinator.setDensity(.compact)
 
@@ -47,17 +48,14 @@ final class TaskCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.sessions.first?.status, .running)
     }
 
-    func testHoverExitCollapsesOnlyAfterDelay() {
+    func testHoverExitCollapsesImmediately() {
         let start = Date(timeIntervalSince1970: 200)
         let coordinator = TaskCoordinator(now: start)
 
         coordinator.pointerEntered()
-        coordinator.pointerExited(at: start)
-        coordinator.advanceTime(to: start.addingTimeInterval(0.5))
-
         XCTAssertTrue(coordinator.isExpanded)
 
-        coordinator.advanceTime(to: start.addingTimeInterval(1.4))
+        coordinator.pointerExited(at: start)
 
         XCTAssertFalse(coordinator.isExpanded)
     }

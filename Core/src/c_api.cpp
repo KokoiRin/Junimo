@@ -296,7 +296,7 @@ extern "C" JunimoCoreUiPreferencesSnapshot junimo_core_ui_preferences(
     JunimoCoreEngineRef engine
 ) {
     if (engine == nullptr) {
-        return JunimoCoreUiPreferencesSnapshot{"mint", "comfortable", 760, 540, 6};
+        return JunimoCoreUiPreferencesSnapshot{"mint", "comfortable", 760, 220, 6};
     }
     return preferences_snapshot(engine->engine.ui_preferences());
 }
@@ -306,7 +306,7 @@ extern "C" JunimoCoreUiPreferencesSnapshot junimo_core_set_accent(
     const char* accent
 ) {
     if (engine == nullptr) {
-        return JunimoCoreUiPreferencesSnapshot{"mint", "comfortable", 760, 540, 6};
+        return JunimoCoreUiPreferencesSnapshot{"mint", "comfortable", 760, 220, 6};
     }
     return preferences_snapshot(engine->engine.set_accent(accent == nullptr ? "" : accent));
 }
@@ -316,7 +316,7 @@ extern "C" JunimoCoreUiPreferencesSnapshot junimo_core_set_density(
     const char* density
 ) {
     if (engine == nullptr) {
-        return JunimoCoreUiPreferencesSnapshot{"mint", "comfortable", 760, 540, 6};
+        return JunimoCoreUiPreferencesSnapshot{"mint", "comfortable", 760, 220, 6};
     }
     return preferences_snapshot(engine->engine.set_density(density == nullptr ? "" : density));
 }
@@ -342,7 +342,7 @@ extern "C" int junimo_core_ui_expanded_width(JunimoCoreEngineRef engine) {
 }
 
 extern "C" int junimo_core_ui_expanded_height(JunimoCoreEngineRef engine) {
-    return engine == nullptr ? 540 : engine->engine.ui_preferences().expanded_height;
+    return engine == nullptr ? 220 : engine->engine.ui_preferences().expanded_height;
 }
 
 extern "C" int junimo_core_ui_top_offset(JunimoCoreEngineRef engine) {
