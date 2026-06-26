@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/.build/direct"
 mkdir -p "$BUILD_DIR"
+CORNER_NOTE_CACHE_PATH="$BUILD_DIR/corner-note-test.cache"
+rm -f "$CORNER_NOTE_CACHE_PATH"
 
 "$ROOT_DIR/scripts/build_core_bridge.sh" "$BUILD_DIR" >/dev/null
 
@@ -32,4 +34,5 @@ swiftc \
   -Xlinker -rpath \
   -Xlinker "$BUILD_DIR"
 
+JUNIMO_CORNER_NOTE_CACHE_PATH="$CORNER_NOTE_CACHE_PATH" \
 "$BUILD_DIR/JunimoCoreSmokeTests"

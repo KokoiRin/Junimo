@@ -42,6 +42,9 @@ Current path:
 3. Call the bridge from `Sources/JunimoCore/CppCoreBridge.swift` through `@_silgen_name`.
 4. Map bridge snapshots into Swift `ObservableObject` state in `TaskCoordinator`.
 5. Current bridge-backed behavior:
+   - agent and action catalog snapshots
+   - recent activity feed snapshots and trimming
+   - active Pomodoro snapshot
    - action dispatch
    - agent status transition for known agent actions
    - Pomodoro cancellation
@@ -55,8 +58,6 @@ This keeps UI iteration fast while steadily moving core behavior into C++23.
 
 Next bridge steps:
 
-- Move initial agent/action catalog snapshots fully into C++ UI state.
-- Move activity feed trimming rules fully into C++.
 - Add session cancellation/retry policies once real adapters report lifecycle events.
 - Persist C++ UI preferences to a user config file after the in-memory model settles.
 - Replace thread-local string snapshots with owned buffers if asynchronous bridge calls become necessary.

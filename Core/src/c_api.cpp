@@ -18,8 +18,18 @@ using junimo::core::TimePoint;
 thread_local std::string action_title_storage;
 thread_local std::string action_detail_storage;
 thread_local std::string action_agent_storage;
+thread_local std::array<std::string, 8> agent_id_storage;
+thread_local std::array<std::string, 8> agent_name_storage;
+thread_local std::array<std::string, 8> agent_detail_storage;
+thread_local std::array<std::string, 8> action_id_list_storage;
+thread_local std::array<std::string, 8> action_title_list_storage;
+thread_local std::array<std::string, 8> action_subtitle_list_storage;
+thread_local std::array<std::string, 8> action_agent_id_list_storage;
+thread_local std::array<std::string, 8> activity_title_storage;
+thread_local std::array<std::string, 8> activity_detail_storage;
 thread_local std::string pomodoro_title_storage;
 thread_local std::string pomodoro_detail_storage;
+thread_local std::string active_pomodoro_title_storage;
 thread_local std::string notification_title_storage;
 thread_local std::string notification_body_storage;
 thread_local std::array<std::string, 8> command_id_storage;
@@ -36,6 +46,9 @@ thread_local std::array<std::string, 6> session_detail_storage;
 thread_local std::array<std::string, 6> session_status_storage;
 thread_local std::string preferences_accent_storage;
 thread_local std::string preferences_density_storage;
+thread_local std::string corner_note_text_storage;
+thread_local std::array<std::string, 16> corner_todo_id_storage;
+thread_local std::array<std::string, 16> corner_todo_title_storage;
 
 TimePoint from_unix_seconds(long long unix_seconds) {
     return TimePoint{Seconds{unix_seconds}};
@@ -53,6 +66,18 @@ int to_c_status(junimo::core::AgentStatus status) {
             return 3;
     }
     return 0;
+}
+
+int to_c_action_kind(junimo::core::ActionKind kind) {
+    switch (kind) {
+        case junimo::core::ActionKind::agent:
+            return 0;
+        case junimo::core::ActionKind::tool:
+            return 1;
+        case junimo::core::ActionKind::project:
+            return 2;
+    }
+    return 1;
 }
 
 int to_c_session_status(junimo::core::SessionStatus status) {
@@ -96,6 +121,25 @@ JunimoCoreUiPreferencesSnapshot preferences_snapshot(const junimo::core::UiPrefe
     };
 }
 
+JunimoCoreCornerNoteSnapshot corner_note_snapshot(const junimo::core::CornerNote& note) {
+    JunimoCoreCornerNoteSnapshot snapshot{};
+    corner_note_text_storage = note.text;
+    snapshot.text = corner_note_text_storage.c_str();
+    snapshot.todo_count = static_cast<int>(std::min<std::size_t>(note.todos.size(), corner_todo_id_storage.size()));
+
+    for (std::size_t index = 0; index < note.todos.size() && index < corner_todo_id_storage.size(); ++index) {
+        corner_todo_id_storage[index] = note.todos[index].id;
+        corner_todo_title_storage[index] = note.todos[index].title;
+        snapshot.todos[index] = JunimoCoreCornerTodoSnapshot{
+            .id = corner_todo_id_storage[index].c_str(),
+            .title = corner_todo_title_storage[index].c_str(),
+            .is_done = note.todos[index].is_done ? 1 : 0,
+        };
+    }
+
+    return snapshot;
+}
+
 }  // namespace
 
 extern "C" JunimoCoreEngineRef junimo_core_engine_create(void) {
@@ -104,6 +148,118 @@ extern "C" JunimoCoreEngineRef junimo_core_engine_create(void) {
 
 extern "C" void junimo_core_engine_destroy(JunimoCoreEngineRef engine) {
     delete engine;
+}
+
+extern "C" JunimoCoreAgentList junimo_core_agents(JunimoCoreEngineRef engine) {
+    JunimoCoreAgentList list{};
+    if (engine == nullptr) {
+        return list;
+    }
+
+    const auto agents = engine->engine.agents();
+    list.count = static_cast<int>(std::min<std::size_t>(agents.size(), agent_id_storage.size()));
+    for (std::size_t index = 0; index < agents.size() && index < agent_id_storage.size(); ++index) {
+        agent_id_storage[index] = agents[index].id;
+        agent_name_storage[index] = agents[index].name;
+        agent_detail_storage[index] = agents[index].detail;
+        list.items[index] = JunimoCoreAgentSnapshot{
+            .id = agent_id_storage[index].c_str(),
+            .name = agent_name_storage[index].c_str(),
+            .detail = agent_detail_storage[index].c_str(),
+            .status = to_c_status(agents[index].status),
+        };
+    }
+    return list;
+}
+
+extern "C" JunimoCoreActionList junimo_core_actions(JunimoCoreEngineRef engine) {
+    JunimoCoreActionList list{};
+    if (engine == nullptr) {
+        return list;
+    }
+
+    const auto actions = engine->engine.actions();
+    list.count = static_cast<int>(std::min<std::size_t>(actions.size(), action_id_list_storage.size()));
+    for (std::size_t index = 0; index < actions.size() && index < action_id_list_storage.size(); ++index) {
+        action_id_list_storage[index] = actions[index].id;
+        action_title_list_storage[index] = actions[index].title;
+        action_subtitle_list_storage[index] = actions[index].subtitle;
+        action_agent_id_list_storage[index] = actions[index].agent_id.value_or("");
+        list.items[index] = JunimoCoreActionSnapshot{
+            .id = action_id_list_storage[index].c_str(),
+            .title = action_title_list_storage[index].c_str(),
+            .subtitle = action_subtitle_list_storage[index].c_str(),
+            .kind = to_c_action_kind(actions[index].kind),
+            .agent_id = action_agent_id_list_storage[index].c_str(),
+        };
+    }
+    return list;
+}
+
+extern "C" JunimoCoreActivityList junimo_core_recent_activities(JunimoCoreEngineRef engine) {
+    JunimoCoreActivityList list{};
+    if (engine == nullptr) {
+        return list;
+    }
+
+    const auto activities = engine->engine.activities();
+    list.count = static_cast<int>(std::min<std::size_t>(activities.size(), activity_title_storage.size()));
+    for (std::size_t index = 0; index < activities.size() && index < activity_title_storage.size(); ++index) {
+        activity_title_storage[index] = activities[index].title;
+        activity_detail_storage[index] = activities[index].detail;
+        list.items[index] = JunimoCoreActivitySnapshot{
+            .title = activity_title_storage[index].c_str(),
+            .detail = activity_detail_storage[index].c_str(),
+            .created_at_unix_seconds = to_unix_seconds(activities[index].created_at),
+        };
+    }
+    return list;
+}
+
+extern "C" JunimoCorePomodoroSnapshot junimo_core_active_pomodoro(JunimoCoreEngineRef engine) {
+    if (engine == nullptr || !engine->engine.active_pomodoro().has_value()) {
+        return JunimoCorePomodoroSnapshot{
+            .has_active = 0,
+            .title = "",
+            .started_at_unix_seconds = 0,
+            .duration_seconds = 0,
+        };
+    }
+
+    const auto& pomodoro = *engine->engine.active_pomodoro();
+    active_pomodoro_title_storage = pomodoro.title;
+    return JunimoCorePomodoroSnapshot{
+        .has_active = 1,
+        .title = active_pomodoro_title_storage.c_str(),
+        .started_at_unix_seconds = to_unix_seconds(pomodoro.started_at),
+        .duration_seconds = pomodoro.duration.count(),
+    };
+}
+
+extern "C" int junimo_core_has_active_pomodoro(JunimoCoreEngineRef engine) {
+    return engine != nullptr && engine->engine.active_pomodoro().has_value() ? 1 : 0;
+}
+
+extern "C" const char* junimo_core_active_pomodoro_title(JunimoCoreEngineRef engine) {
+    if (engine == nullptr || !engine->engine.active_pomodoro().has_value()) {
+        return "";
+    }
+    active_pomodoro_title_storage = engine->engine.active_pomodoro()->title;
+    return active_pomodoro_title_storage.c_str();
+}
+
+extern "C" long long junimo_core_active_pomodoro_started_at(JunimoCoreEngineRef engine) {
+    if (engine == nullptr || !engine->engine.active_pomodoro().has_value()) {
+        return 0;
+    }
+    return to_unix_seconds(engine->engine.active_pomodoro()->started_at);
+}
+
+extern "C" long long junimo_core_active_pomodoro_duration(JunimoCoreEngineRef engine) {
+    if (engine == nullptr || !engine->engine.active_pomodoro().has_value()) {
+        return 0;
+    }
+    return engine->engine.active_pomodoro()->duration.count();
 }
 
 extern "C" JunimoCoreActionResult junimo_core_run_action(
@@ -140,6 +296,22 @@ extern "C" JunimoCoreActionResult junimo_core_run_action(
         .agent_id = action_agent_storage.c_str(),
         .agent_status = status,
     };
+}
+
+extern "C" void junimo_core_record_activity(
+    JunimoCoreEngineRef engine,
+    const char* title,
+    const char* detail,
+    long long unix_seconds
+) {
+    if (engine == nullptr) {
+        return;
+    }
+    engine->engine.record_activity(
+        title == nullptr ? "" : title,
+        detail == nullptr ? "" : detail,
+        from_unix_seconds(unix_seconds)
+    );
 }
 
 extern "C" void junimo_core_start_pomodoro(
@@ -361,4 +533,65 @@ extern "C" void junimo_core_update_density(JunimoCoreEngineRef engine, const cha
         return;
     }
     (void)engine->engine.set_density(density == nullptr ? "" : density);
+}
+
+extern "C" JunimoCoreCornerNoteSnapshot junimo_core_corner_note(JunimoCoreEngineRef engine) {
+    if (engine == nullptr) {
+        return corner_note_snapshot(junimo::core::CornerNote{
+            .text = "Quick note",
+            .todos = {},
+        });
+    }
+    return corner_note_snapshot(engine->engine.corner_note());
+}
+
+extern "C" JunimoCoreCornerNoteSnapshot junimo_core_update_corner_note_text(
+    JunimoCoreEngineRef engine,
+    const char* text
+) {
+    if (engine == nullptr) {
+        return junimo_core_corner_note(engine);
+    }
+    return corner_note_snapshot(engine->engine.update_corner_note_text(text == nullptr ? "" : text));
+}
+
+extern "C" JunimoCoreCornerNoteSnapshot junimo_core_add_corner_todo(
+    JunimoCoreEngineRef engine,
+    const char* title
+) {
+    if (engine == nullptr) {
+        return junimo_core_corner_note(engine);
+    }
+    return corner_note_snapshot(engine->engine.add_corner_todo(title == nullptr ? "" : title));
+}
+
+extern "C" JunimoCoreCornerNoteSnapshot junimo_core_update_corner_todo_title(
+    JunimoCoreEngineRef engine,
+    const char* id,
+    const char* title
+) {
+    if (engine == nullptr) {
+        return junimo_core_corner_note(engine);
+    }
+    return corner_note_snapshot(engine->engine.update_corner_todo_title(id == nullptr ? "" : id, title == nullptr ? "" : title));
+}
+
+extern "C" JunimoCoreCornerNoteSnapshot junimo_core_toggle_corner_todo(
+    JunimoCoreEngineRef engine,
+    const char* id
+) {
+    if (engine == nullptr) {
+        return junimo_core_corner_note(engine);
+    }
+    return corner_note_snapshot(engine->engine.toggle_corner_todo(id == nullptr ? "" : id));
+}
+
+extern "C" JunimoCoreCornerNoteSnapshot junimo_core_remove_corner_todo(
+    JunimoCoreEngineRef engine,
+    const char* id
+) {
+    if (engine == nullptr) {
+        return junimo_core_corner_note(engine);
+    }
+    return corner_note_snapshot(engine->engine.remove_corner_todo(id == nullptr ? "" : id));
 }

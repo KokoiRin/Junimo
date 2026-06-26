@@ -57,6 +57,12 @@ final class LaunchHealthReporter {
                     "expandedHeight": coordinator.preferences.expandedHeight,
                     "topOffset": coordinator.preferences.topOffset
                 ]
+            ],
+            "cornerNote": [
+                "expanded": coordinator.isCornerNoteExpanded,
+                "noteLength": coordinator.cornerNoteText.count,
+                "todos": coordinator.cornerTodos.count,
+                "openTodos": coordinator.cornerTodos.filter { !$0.isDone }.count
             ]
         ]
 
