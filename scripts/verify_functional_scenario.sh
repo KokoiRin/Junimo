@@ -4,11 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$("$ROOT_DIR/scripts/build_app.sh")"
 HEALTH_PATH="${JUNIMO_SCENARIO_HEALTH_PATH:-/tmp/junimo-functional-health.json}"
+CORNER_NOTE_CACHE_PATH="${JUNIMO_SCENARIO_CORNER_NOTE_CACHE_PATH:-/tmp/junimo-functional-corner-note.cache}"
 
-rm -f "$HEALTH_PATH" "$HEALTH_PATH.error"
+rm -f "$HEALTH_PATH" "$HEALTH_PATH.error" "$CORNER_NOTE_CACHE_PATH"
 
 JUNIMO_HEALTH_PATH="$HEALTH_PATH" \
 JUNIMO_HEALTH_SCENARIO=1 \
+JUNIMO_CORNER_NOTE_CACHE_PATH="$CORNER_NOTE_CACHE_PATH" \
 "$APP_DIR/Contents/MacOS/Junimo" >/tmp/junimo-functional-scenario.log 2>&1 &
 pid=$!
 
@@ -57,5 +59,9 @@ require(console.get("latestActivity") == "Pomodoro started", "scenario latest ac
 preferences = console.get("preferences", {})
 require(preferences.get("density") == "compact", "scenario did not update density")
 require(preferences.get("expandedWidth") == 700, "compact width not applied")
+corner = data.get("cornerNote", {})
+require(corner.get("expanded") is True, "scenario did not expand corner note")
+require(corner.get("noteLength", 0) > 0, "scenario did not write corner note text")
+require(corner.get("todos", 0) >= 3, "scenario did not create corner todos")
 print("Junimo functional scenario verified")
 PY

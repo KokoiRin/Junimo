@@ -20,11 +20,15 @@ launches the app.
 
 - Top-center non-activating AppKit `NSPanel` hosted with SwiftUI.
 - Collapsed capsule and hover-expanded console.
+- Invisible L-shaped bottom-right screen-edge hot zone that opens an editable quick note and todo panel after a 0.5s dwell.
 - Mock Codex/Hermes agent status.
+- CLI/app-server-backed Codex monitor shell for quota source, known/cloud threads, and completion alerts.
 - Adapter-mediated action clicks through `TaskCoordinator`.
 - Recent activity recording.
 - Basic accent theme control.
 - Basic Pomodoro start, cancel, completion, and reminder request flow.
+- C++23-backed agent/action catalog, recent activity feed, and active Pomodoro snapshot.
+- C++23-backed quick note and todo cache at `~/Library/Application Support/Junimo/corner-note.cache`.
 - C++23-backed command palette search.
 - C++23-backed project profile snapshot.
 - C++23-backed execution session timeline.
@@ -128,6 +132,7 @@ pkill -f ".build/app/Junimo.app/Contents/MacOS/Junimo"
 ## Architecture
 
 See [docs/architecture.md](docs/architecture.md) for the Swift/AppKit shell, current Swift coordinator, new C++23 core boundary, and next feature expansion plan.
+See [docs/codex-integration.md](docs/codex-integration.md) for the researched Codex quota, thread, cloud task, and completion-alert integration path.
 
 ## OpenSpec
 

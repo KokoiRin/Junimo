@@ -119,7 +119,7 @@ public struct ConsolePreferences: Equatable {
         accent: ConsoleAccent = .mint,
         density: ConsoleDensity = .comfortable,
         expandedWidth: Int = 760,
-        expandedHeight: Int = 220,
+        expandedHeight: Int = 300,
         topOffset: Int = 6
     ) {
         self.accent = accent
@@ -218,6 +218,211 @@ public struct NotificationRequest: Identifiable, Equatable {
         self.title = title
         self.body = body
         self.createdAt = createdAt
+    }
+}
+
+public struct CornerTodoItem: Identifiable, Equatable, Codable {
+    public let id: UUID
+    public var title: String
+    public var isDone: Bool
+
+    public init(id: UUID = UUID(), title: String, isDone: Bool = false) {
+        self.id = id
+        self.title = title
+        self.isDone = isDone
+    }
+}
+
+public struct CornerNoteSnapshot: Equatable {
+    public var text: String
+    public var todos: [CornerTodoItem]
+
+    public init(text: String, todos: [CornerTodoItem]) {
+        self.text = text
+        self.todos = todos
+    }
+}
+
+public enum CodexCapabilityStatus: String, Equatable {
+    case available
+    case needsSetup
+    case unsupported
+    case degraded
+
+    public var label: String {
+        switch self {
+        case .available: "Available"
+        case .needsSetup: "Needs setup"
+        case .unsupported: "Unsupported"
+        case .degraded: "Degraded"
+        }
+    }
+}
+
+public struct CodexUsageWindow: Equatable {
+    public var label: String
+    public var usedPercent: Int?
+    public var resetsAt: Date?
+    public var durationMinutes: Int?
+
+    public init(label: String, usedPercent: Int? = nil, resetsAt: Date? = nil, durationMinutes: Int? = nil) {
+        self.label = label
+        self.usedPercent = usedPercent
+        self.resetsAt = resetsAt
+        self.durationMinutes = durationMinutes
+    }
+}
+
+public struct CodexUsageSnapshot: Equatable {
+    public var status: CodexCapabilityStatus
+    public var planLabel: String
+    public var detail: String
+    public var source: String
+    public var primaryWindow: CodexUsageWindow?
+    public var secondaryWindow: CodexUsageWindow?
+    public var creditsBalance: String?
+
+    public init(
+        status: CodexCapabilityStatus,
+        planLabel: String,
+        detail: String,
+        source: String,
+        primaryWindow: CodexUsageWindow? = nil,
+        secondaryWindow: CodexUsageWindow? = nil,
+        creditsBalance: String? = nil
+    ) {
+        self.status = status
+        self.planLabel = planLabel
+        self.detail = detail
+        self.source = source
+        self.primaryWindow = primaryWindow
+        self.secondaryWindow = secondaryWindow
+        self.creditsBalance = creditsBalance
+    }
+
+    public var summaryText: String {
+        if let primaryWindow, let usedPercent = primaryWindow.usedPercent {
+            return "\(max(0, 100 - usedPercent))% left"
+        }
+        return status.label
+    }
+}
+
+public enum CodexThreadStatus: String, Equatable {
+    case idle
+    case running
+    case waiting
+    case completed
+    case failed
+
+    public var label: String {
+        switch self {
+        case .idle: "Idle"
+        case .running: "Running"
+        case .waiting: "Waiting"
+        case .completed: "Done"
+        case .failed: "Failed"
+        }
+    }
+
+    public var isActive: Bool {
+        self == .running || self == .waiting
+    }
+}
+
+public struct CodexThreadSummary: Identifiable, Equatable {
+    public let id: String
+    public var title: String
+    public var status: CodexThreadStatus
+    public var detail: String
+    public var updatedAt: Date
+
+    public init(id: String, title: String, status: CodexThreadStatus, detail: String, updatedAt: Date) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.detail = detail
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct CodexIntegrationFinding: Identifiable, Equatable {
+    public let id: String
+    public var title: String
+    public var status: CodexCapabilityStatus
+    public var detail: String
+
+    public init(id: String, title: String, status: CodexCapabilityStatus, detail: String) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.detail = detail
+    }
+}
+
+public struct CodexMonitorSnapshot: Equatable {
+    public var usage: CodexUsageSnapshot
+    public var threads: [CodexThreadSummary]
+    public var findings: [CodexIntegrationFinding]
+    public var refreshedAt: Date
+
+    public init(
+        usage: CodexUsageSnapshot,
+        threads: [CodexThreadSummary],
+        findings: [CodexIntegrationFinding],
+        refreshedAt: Date
+    ) {
+        self.usage = usage
+        self.threads = threads
+        self.findings = findings
+        self.refreshedAt = refreshedAt
+    }
+
+    public var activeThreadCount: Int {
+        threads.filter { $0.status.isActive }.count
+    }
+
+    public var latestThread: CodexThreadSummary? {
+        threads.sorted { $0.updatedAt > $1.updatedAt }.first
+    }
+
+    public static func researchedDefault(now: Date) -> CodexMonitorSnapshot {
+        CodexMonitorSnapshot(
+            usage: CodexUsageSnapshot(
+                status: .needsSetup,
+                planLabel: "Codex quota",
+                detail: "Use Codex app-server account/rateLimits/read for live rate-limit windows.",
+                source: "Codex app-server"
+            ),
+            threads: [],
+            findings: [
+                CodexIntegrationFinding(
+                    id: "app-server",
+                    title: "Live local threads",
+                    status: .needsSetup,
+                    detail: "Connect to codex app-server, then call thread/list and listen for turn/thread notifications."
+                ),
+                CodexIntegrationFinding(
+                    id: "exec-json",
+                    title: "Junimo-launched runs",
+                    status: .available,
+                    detail: "codex exec --json emits turn.completed and turn.failed for completion alerts."
+                ),
+                CodexIntegrationFinding(
+                    id: "cloud-list",
+                    title: "Cloud tasks",
+                    status: .available,
+                    detail: "codex cloud list --json returns recent cloud task status when authenticated."
+                ),
+                CodexIntegrationFinding(
+                    id: "analytics",
+                    title: "Historical usage",
+                    status: .degraded,
+                    detail: "Enterprise Analytics reports daily/weekly usage, but may lag and is not a personal live quota meter."
+                )
+            ],
+            refreshedAt: now
+        )
     }
 }
 

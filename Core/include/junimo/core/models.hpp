@@ -78,7 +78,7 @@ struct UiPreferences {
     std::string accent = "mint";
     std::string density = "comfortable";
     int expanded_width = 760;
-    int expanded_height = 220;
+    int expanded_height = 300;
     int top_offset = 6;
 };
 
@@ -98,6 +98,17 @@ struct PomodoroSession {
     [[nodiscard]] TimePoint ends_at() const;
     [[nodiscard]] Seconds remaining_at(TimePoint now) const;
     [[nodiscard]] bool complete_at(TimePoint now) const;
+};
+
+struct CornerTodo {
+    std::string id;
+    std::string title;
+    bool is_done = false;
+};
+
+struct CornerNote {
+    std::string text;
+    std::vector<CornerTodo> todos;
 };
 
 [[nodiscard]] std::string_view status_label(AgentStatus status);

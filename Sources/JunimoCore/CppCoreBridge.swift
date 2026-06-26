@@ -19,6 +19,70 @@ struct JunimoCorePomodoroResultC {
     var notificationBody: UnsafePointer<CChar>?
 }
 
+struct JunimoCoreAgentSnapshotC {
+    var id: UnsafePointer<CChar>?
+    var name: UnsafePointer<CChar>?
+    var detail: UnsafePointer<CChar>?
+    var status: Int32
+}
+
+struct JunimoCoreAgentListC {
+    var count: Int32
+    var item0: JunimoCoreAgentSnapshotC
+    var item1: JunimoCoreAgentSnapshotC
+    var item2: JunimoCoreAgentSnapshotC
+    var item3: JunimoCoreAgentSnapshotC
+    var item4: JunimoCoreAgentSnapshotC
+    var item5: JunimoCoreAgentSnapshotC
+    var item6: JunimoCoreAgentSnapshotC
+    var item7: JunimoCoreAgentSnapshotC
+}
+
+struct JunimoCoreActionSnapshotC {
+    var id: UnsafePointer<CChar>?
+    var title: UnsafePointer<CChar>?
+    var subtitle: UnsafePointer<CChar>?
+    var kind: Int32
+    var agentID: UnsafePointer<CChar>?
+}
+
+struct JunimoCoreActionListC {
+    var count: Int32
+    var item0: JunimoCoreActionSnapshotC
+    var item1: JunimoCoreActionSnapshotC
+    var item2: JunimoCoreActionSnapshotC
+    var item3: JunimoCoreActionSnapshotC
+    var item4: JunimoCoreActionSnapshotC
+    var item5: JunimoCoreActionSnapshotC
+    var item6: JunimoCoreActionSnapshotC
+    var item7: JunimoCoreActionSnapshotC
+}
+
+struct JunimoCoreActivitySnapshotC {
+    var title: UnsafePointer<CChar>?
+    var detail: UnsafePointer<CChar>?
+    var createdAtUnixSeconds: Int64
+}
+
+struct JunimoCoreActivityListC {
+    var count: Int32
+    var item0: JunimoCoreActivitySnapshotC
+    var item1: JunimoCoreActivitySnapshotC
+    var item2: JunimoCoreActivitySnapshotC
+    var item3: JunimoCoreActivitySnapshotC
+    var item4: JunimoCoreActivitySnapshotC
+    var item5: JunimoCoreActivitySnapshotC
+    var item6: JunimoCoreActivitySnapshotC
+    var item7: JunimoCoreActivitySnapshotC
+}
+
+struct JunimoCorePomodoroSnapshotC {
+    var hasActive: Int32
+    var title: UnsafePointer<CChar>?
+    var startedAtUnixSeconds: Int64
+    var durationSeconds: Int64
+}
+
 struct JunimoCoreCommandSnapshotC {
     var id: UnsafePointer<CChar>?
     var title: UnsafePointer<CChar>?
@@ -74,11 +138,62 @@ struct JunimoCoreUiPreferencesSnapshotC {
     var topOffset: Int32
 }
 
+struct JunimoCoreCornerTodoSnapshotC {
+    var id: UnsafePointer<CChar>?
+    var title: UnsafePointer<CChar>?
+    var isDone: Int32
+}
+
+struct JunimoCoreCornerNoteSnapshotC {
+    var text: UnsafePointer<CChar>?
+    var todoCount: Int32
+    var item0: JunimoCoreCornerTodoSnapshotC
+    var item1: JunimoCoreCornerTodoSnapshotC
+    var item2: JunimoCoreCornerTodoSnapshotC
+    var item3: JunimoCoreCornerTodoSnapshotC
+    var item4: JunimoCoreCornerTodoSnapshotC
+    var item5: JunimoCoreCornerTodoSnapshotC
+    var item6: JunimoCoreCornerTodoSnapshotC
+    var item7: JunimoCoreCornerTodoSnapshotC
+    var item8: JunimoCoreCornerTodoSnapshotC
+    var item9: JunimoCoreCornerTodoSnapshotC
+    var item10: JunimoCoreCornerTodoSnapshotC
+    var item11: JunimoCoreCornerTodoSnapshotC
+    var item12: JunimoCoreCornerTodoSnapshotC
+    var item13: JunimoCoreCornerTodoSnapshotC
+    var item14: JunimoCoreCornerTodoSnapshotC
+    var item15: JunimoCoreCornerTodoSnapshotC
+}
+
 @_silgen_name("junimo_core_engine_create")
 private func junimoCoreEngineCreate() -> JunimoCoreEngineRef?
 
 @_silgen_name("junimo_core_engine_destroy")
 private func junimoCoreEngineDestroy(_ engine: JunimoCoreEngineRef?)
+
+@_silgen_name("junimo_core_agents")
+private func junimoCoreAgents(_ engine: JunimoCoreEngineRef?) -> JunimoCoreAgentListC
+
+@_silgen_name("junimo_core_actions")
+private func junimoCoreActions(_ engine: JunimoCoreEngineRef?) -> JunimoCoreActionListC
+
+@_silgen_name("junimo_core_recent_activities")
+private func junimoCoreRecentActivities(_ engine: JunimoCoreEngineRef?) -> JunimoCoreActivityListC
+
+@_silgen_name("junimo_core_active_pomodoro")
+private func junimoCoreActivePomodoro(_ engine: JunimoCoreEngineRef?) -> JunimoCorePomodoroSnapshotC
+
+@_silgen_name("junimo_core_has_active_pomodoro")
+private func junimoCoreHasActivePomodoro(_ engine: JunimoCoreEngineRef?) -> Int32
+
+@_silgen_name("junimo_core_active_pomodoro_title")
+private func junimoCoreActivePomodoroTitle(_ engine: JunimoCoreEngineRef?) -> UnsafePointer<CChar>?
+
+@_silgen_name("junimo_core_active_pomodoro_started_at")
+private func junimoCoreActivePomodoroStartedAt(_ engine: JunimoCoreEngineRef?) -> Int64
+
+@_silgen_name("junimo_core_active_pomodoro_duration")
+private func junimoCoreActivePomodoroDuration(_ engine: JunimoCoreEngineRef?) -> Int64
 
 @_silgen_name("junimo_core_run_action")
 private func junimoCoreRunAction(
@@ -86,6 +201,14 @@ private func junimoCoreRunAction(
     _ actionID: UnsafePointer<CChar>?,
     _ unixSeconds: Int64
 ) -> JunimoCoreActionResultC
+
+@_silgen_name("junimo_core_record_activity")
+private func junimoCoreRecordActivity(
+    _ engine: JunimoCoreEngineRef?,
+    _ title: UnsafePointer<CChar>?,
+    _ detail: UnsafePointer<CChar>?,
+    _ unixSeconds: Int64
+)
 
 @_silgen_name("junimo_core_start_pomodoro")
 private func junimoCoreStartPomodoro(
@@ -166,6 +289,40 @@ private func junimoCoreUpdateDensity(
     _ density: UnsafePointer<CChar>?
 )
 
+@_silgen_name("junimo_core_corner_note")
+private func junimoCoreCornerNote(_ engine: JunimoCoreEngineRef?) -> JunimoCoreCornerNoteSnapshotC
+
+@_silgen_name("junimo_core_update_corner_note_text")
+private func junimoCoreUpdateCornerNoteText(
+    _ engine: JunimoCoreEngineRef?,
+    _ text: UnsafePointer<CChar>?
+) -> JunimoCoreCornerNoteSnapshotC
+
+@_silgen_name("junimo_core_add_corner_todo")
+private func junimoCoreAddCornerTodo(
+    _ engine: JunimoCoreEngineRef?,
+    _ title: UnsafePointer<CChar>?
+) -> JunimoCoreCornerNoteSnapshotC
+
+@_silgen_name("junimo_core_update_corner_todo_title")
+private func junimoCoreUpdateCornerTodoTitle(
+    _ engine: JunimoCoreEngineRef?,
+    _ id: UnsafePointer<CChar>?,
+    _ title: UnsafePointer<CChar>?
+) -> JunimoCoreCornerNoteSnapshotC
+
+@_silgen_name("junimo_core_toggle_corner_todo")
+private func junimoCoreToggleCornerTodo(
+    _ engine: JunimoCoreEngineRef?,
+    _ id: UnsafePointer<CChar>?
+) -> JunimoCoreCornerNoteSnapshotC
+
+@_silgen_name("junimo_core_remove_corner_todo")
+private func junimoCoreRemoveCornerTodo(
+    _ engine: JunimoCoreEngineRef?,
+    _ id: UnsafePointer<CChar>?
+) -> JunimoCoreCornerNoteSnapshotC
+
 public struct CppActionResult: Equatable {
     public var handled: Bool
     public var activityTitle: String
@@ -197,6 +354,29 @@ public final class CppCoreEngine {
         junimoCoreEngineDestroy(handle)
     }
 
+    public func agents() -> [AgentSummary] {
+        junimoCoreAgents(handle).agents
+    }
+
+    public func actions() -> [ConsoleAction] {
+        junimoCoreActions(handle).actions
+    }
+
+    public func recentActivities() -> [ActivityEntry] {
+        junimoCoreRecentActivities(handle).activities
+    }
+
+    public func activePomodoro() -> PomodoroSession? {
+        guard junimoCoreHasActivePomodoro(handle) != 0 else {
+            return nil
+        }
+        return PomodoroSession(
+            title: string(from: junimoCoreActivePomodoroTitle(handle)),
+            startedAt: Date(timeIntervalSince1970: TimeInterval(junimoCoreActivePomodoroStartedAt(handle))),
+            duration: TimeInterval(junimoCoreActivePomodoroDuration(handle))
+        )
+    }
+
     public func runAction(id: String, at date: Date) -> CppActionResult {
         let result = id.withCString { pointer in
             junimoCoreRunAction(handle, pointer, unixSeconds(for: date))
@@ -209,6 +389,14 @@ public final class CppCoreEngine {
             agentID: optionalString(from: result.agentID),
             agentStatus: AgentStatus(cppRawValue: result.agentStatus)
         )
+    }
+
+    public func recordActivity(title: String, detail: String, at date: Date) {
+        title.withCString { titlePointer in
+            detail.withCString { detailPointer in
+                junimoCoreRecordActivity(handle, titlePointer, detailPointer, unixSeconds(for: date))
+            }
+        }
     }
 
     public func startPomodoro(duration: TimeInterval, at date: Date) {
@@ -268,6 +456,50 @@ public final class CppCoreEngine {
         return currentPreferences()
     }
 
+    public func cornerNote() -> CornerNoteSnapshot {
+        CornerNoteSnapshot(junimoCoreCornerNote(handle))
+    }
+
+    public func updateCornerNoteText(_ text: String) -> CornerNoteSnapshot {
+        let snapshot = text.withCString { pointer in
+            junimoCoreUpdateCornerNoteText(handle, pointer)
+        }
+        return CornerNoteSnapshot(snapshot)
+    }
+
+    public func addCornerTodo(title: String) -> CornerNoteSnapshot {
+        let snapshot = title.withCString { pointer in
+            junimoCoreAddCornerTodo(handle, pointer)
+        }
+        return CornerNoteSnapshot(snapshot)
+    }
+
+    public func updateCornerTodo(id: UUID, title: String) -> CornerNoteSnapshot {
+        let idValue = id.uuidString
+        let snapshot = idValue.withCString { idPointer in
+            title.withCString { titlePointer in
+                junimoCoreUpdateCornerTodoTitle(handle, idPointer, titlePointer)
+            }
+        }
+        return CornerNoteSnapshot(snapshot)
+    }
+
+    public func toggleCornerTodo(id: UUID) -> CornerNoteSnapshot {
+        let idValue = id.uuidString
+        let snapshot = idValue.withCString { pointer in
+            junimoCoreToggleCornerTodo(handle, pointer)
+        }
+        return CornerNoteSnapshot(snapshot)
+    }
+
+    public func removeCornerTodo(id: UUID) -> CornerNoteSnapshot {
+        let idValue = id.uuidString
+        let snapshot = idValue.withCString { pointer in
+            junimoCoreRemoveCornerTodo(handle, pointer)
+        }
+        return CornerNoteSnapshot(snapshot)
+    }
+
     private func unixSeconds(for date: Date) -> Int64 {
         Int64(date.timeIntervalSince1970)
     }
@@ -291,6 +523,64 @@ private extension ConsolePreferences {
             expandedWidth: Int(snapshot.expandedWidth),
             expandedHeight: Int(snapshot.expandedHeight),
             topOffset: Int(snapshot.topOffset)
+        )
+    }
+}
+
+private extension JunimoCoreAgentListC {
+    var agents: [AgentSummary] {
+        let snapshots = [item0, item1, item2, item3, item4, item5, item6, item7]
+        let boundedCount = max(0, min(Int(count), snapshots.count))
+        return snapshots.prefix(boundedCount).map { snapshot in
+            AgentSummary(
+                id: string(from: snapshot.id),
+                name: string(from: snapshot.name),
+                status: AgentStatus(cppRawValue: snapshot.status) ?? .idle,
+                detail: string(from: snapshot.detail)
+            )
+        }
+    }
+}
+
+private extension JunimoCoreActionListC {
+    var actions: [ConsoleAction] {
+        let snapshots = [item0, item1, item2, item3, item4, item5, item6, item7]
+        let boundedCount = max(0, min(Int(count), snapshots.count))
+        return snapshots.prefix(boundedCount).map { snapshot in
+            ConsoleAction(
+                id: string(from: snapshot.id),
+                title: string(from: snapshot.title),
+                subtitle: string(from: snapshot.subtitle),
+                kind: ConsoleActionKind(cppRawValue: snapshot.kind) ?? .tool,
+                agentID: optionalString(from: snapshot.agentID)
+            )
+        }
+    }
+}
+
+private extension JunimoCoreActivityListC {
+    var activities: [ActivityEntry] {
+        let snapshots = [item0, item1, item2, item3, item4, item5, item6, item7]
+        let boundedCount = max(0, min(Int(count), snapshots.count))
+        return snapshots.prefix(boundedCount).map { snapshot in
+            ActivityEntry(
+                title: string(from: snapshot.title),
+                detail: string(from: snapshot.detail),
+                date: Date(timeIntervalSince1970: TimeInterval(snapshot.createdAtUnixSeconds))
+            )
+        }
+    }
+}
+
+private extension PomodoroSession {
+    init?(_ snapshot: JunimoCorePomodoroSnapshotC) {
+        guard snapshot.hasActive != 0 else {
+            return nil
+        }
+        self.init(
+            title: string(from: snapshot.title),
+            startedAt: Date(timeIntervalSince1970: TimeInterval(snapshot.startedAtUnixSeconds)),
+            duration: TimeInterval(snapshot.durationSeconds)
         )
     }
 }
@@ -327,6 +617,43 @@ private extension JunimoCoreCommandListC {
     }
 }
 
+private extension CornerNoteSnapshot {
+    init(_ snapshot: JunimoCoreCornerNoteSnapshotC) {
+        let snapshots = [
+            snapshot.item0,
+            snapshot.item1,
+            snapshot.item2,
+            snapshot.item3,
+            snapshot.item4,
+            snapshot.item5,
+            snapshot.item6,
+            snapshot.item7,
+            snapshot.item8,
+            snapshot.item9,
+            snapshot.item10,
+            snapshot.item11,
+            snapshot.item12,
+            snapshot.item13,
+            snapshot.item14,
+            snapshot.item15
+        ]
+        let boundedCount = max(0, min(Int(snapshot.todoCount), snapshots.count))
+        self.init(
+            text: string(from: snapshot.text),
+            todos: snapshots.prefix(boundedCount).compactMap { todo in
+                guard let id = UUID(uuidString: string(from: todo.id)) else {
+                    return nil
+                }
+                return CornerTodoItem(
+                    id: id,
+                    title: string(from: todo.title),
+                    isDone: todo.isDone != 0
+                )
+            }
+        )
+    }
+}
+
 private extension CppPomodoroResult {
     init(_ result: JunimoCorePomodoroResultC) {
         self.init(
@@ -351,6 +678,21 @@ private extension AgentStatus {
             self = .succeeded
         case 3:
             self = .failed
+        default:
+            return nil
+        }
+    }
+}
+
+private extension ConsoleActionKind {
+    init?(cppRawValue: Int32) {
+        switch cppRawValue {
+        case 0:
+            self = .agent
+        case 1:
+            self = .tool
+        case 2:
+            self = .project
         default:
             return nil
         }

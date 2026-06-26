@@ -149,7 +149,9 @@ struct JunimoSurfaceView: View {
 
                 islandCenterStage
 
-                Spacer(minLength: 0)
+                codexStatusStrip
+                    .padding(.horizontal, 42)
+                    .padding(.top, 14)
 
                 bottomDock
                     .padding(.horizontal, 78)
@@ -157,8 +159,8 @@ struct JunimoSurfaceView: View {
             }
         }
         .foregroundStyle(.white.opacity(0.94))
-        .clipShape(RoundedRectangle(cornerRadius: 36, style: .continuous))
-        .shadow(color: .black.opacity(0.55), radius: 28, x: 0, y: 18)
+        .clipShape(TopAttachedPanelShape(radius: 36))
+        .shadow(color: .black.opacity(0.42), radius: 24, x: 0, y: 12)
         .overlay(alignment: .topTrailing) {
             quitButton
                 .padding(.top, 18)
@@ -167,7 +169,7 @@ struct JunimoSurfaceView: View {
     }
 
     private var islandBackground: some View {
-        RoundedRectangle(cornerRadius: 36, style: .continuous)
+        TopAttachedPanelShape(radius: 36)
             .fill(
                 LinearGradient(
                     colors: [
@@ -180,7 +182,7 @@ struct JunimoSurfaceView: View {
                 )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 36, style: .continuous)
+                TopAttachedPanelShape(radius: 36)
                     .stroke(Color.white.opacity(0.10), lineWidth: 1)
             )
     }
@@ -266,6 +268,32 @@ struct JunimoSurfaceView: View {
             }
         }
         .padding(.top, 8)
+    }
+
+    private var codexStatusStrip: some View {
+        HStack(spacing: 10) {
+            codexMetric(
+                icon: "gauge.medium",
+                title: "Quota",
+                value: coordinator.codexMonitor.usage.summaryText,
+                detail: codexQuotaDetail
+            )
+
+            codexMetric(
+                icon: "bubble.left.and.bubble.right.fill",
+                title: "Threads",
+                value: "\(coordinator.codexMonitor.activeThreadCount)/\(coordinator.codexMonitor.threads.count)",
+                detail: codexThreadsDetail
+            )
+
+            codexMetric(
+                icon: "bell.badge.fill",
+                title: "Alerts",
+                value: codexAlertValue,
+                detail: codexAlertDetail
+            )
+        }
+        .frame(height: 46)
     }
 
     private var bottomDock: some View {
@@ -358,6 +386,36 @@ struct JunimoSurfaceView: View {
         .background(Color.white.opacity(0.08), in: Circle())
         .foregroundStyle(.white.opacity(0.88))
         .help(title)
+    }
+
+    private func codexMetric(icon: String, title: String, value: String, detail: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(accentColor)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.44))
+                    .lineLimit(1)
+                Text(value)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.42))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.08), lineWidth: 1))
+        .help("\(title): \(value). \(detail)")
     }
 
     private var quitButton: some View {
@@ -630,6 +688,66 @@ struct JunimoSurfaceView: View {
         coordinator.agents.contains(where: { $0.status == .running }) ? "Active" : "Ready"
     }
 
+    private var codexQuotaDetail: String {
+        let usage = coordinator.codexMonitor.usage
+        let primary = quotaWindowText(usage.primaryWindow)
+        let secondary = quotaWindowText(usage.secondaryWindow)
+        switch (primary, secondary) {
+        case let (primary?, secondary?):
+            return "\(primary) · \(secondary)"
+        case let (primary?, nil):
+            return primary
+        case let (nil, secondary?):
+            return secondary
+        default:
+            return usage.source
+        }
+    }
+
+    private var codexThreadsDetail: String {
+        let activeThreads = coordinator.codexMonitor.threads.filter { $0.status.isActive }
+        if activeThreads.isEmpty {
+            return latestCodexThreadDetail
+        }
+        return activeThreads.prefix(2).map(\.title).joined(separator: ", ")
+    }
+
+    private var latestCodexThreadDetail: String {
+        guard let latest = coordinator.codexMonitor.latestThread else {
+            return "app-server not connected"
+        }
+        return "\(latest.status.label) · \(latest.title)"
+    }
+
+    private func quotaWindowText(_ window: CodexUsageWindow?) -> String? {
+        guard let window, let usedPercent = window.usedPercent else {
+            return nil
+        }
+        let remaining = max(0, 100 - usedPercent)
+        switch window.durationMinutes {
+        case 300:
+            return "5h \(remaining)%"
+        case 10_080:
+            return "week \(remaining)%"
+        case let minutes?:
+            return "\(minutes)m \(remaining)%"
+        case nil:
+            return "\(window.label) \(remaining)%"
+        }
+    }
+
+    private var codexAlertValue: String {
+        coordinator.pendingNotifications.contains { notification in
+            notification.title.localizedCaseInsensitiveContains("Codex")
+        } ? "Ready" : "Quiet"
+    }
+
+    private var codexAlertDetail: String {
+        coordinator.pendingNotifications.contains { notification in
+            notification.title.localizedCaseInsensitiveContains("Codex")
+        } ? "completion pending" : "watching completions"
+    }
+
     private var centerStageIcon: String {
         if coordinator.activePomodoro != nil {
             return "timer"
@@ -826,5 +944,28 @@ private struct PixelSprite: View {
         case 2: .black.opacity(0.86)
         default: .clear
         }
+    }
+}
+
+private struct TopAttachedPanelShape: Shape {
+    var radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let r = min(radius, rect.width / 2, rect.height / 2)
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - r, y: rect.maxY),
+            control: CGPoint(x: rect.maxX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: rect.maxY - r),
+            control: CGPoint(x: rect.minX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        return path
     }
 }
