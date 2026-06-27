@@ -312,21 +312,40 @@ public enum CodexThreadStatus: String, Equatable {
     case idle
     case running
     case waiting
+    case open
     case completed
     case failed
 
+    /// 业务语义：把 Codex 生命周期状态转成面板可读文案，避免 UI 自己猜测协议含义。
     public var label: String {
         switch self {
         case .idle: "Idle"
         case .running: "Running"
         case .waiting: "Waiting"
+        case .open: "Open"
         case .completed: "Done"
         case .failed: "Failed"
         }
     }
 
+    /// 业务语义：只有明确执行中或等待输入的 Codex 线程才算 active。
     public var isActive: Bool {
         self == .running || self == .waiting
+    }
+
+    /// 业务语义：open 表示非归档但未加载明确运行态的 Codex 对话。
+    public var isOpen: Bool {
+        self == .open
+    }
+
+    /// 业务语义：只有明确完成或失败的线程才能触发 review / notification。
+    public var isTerminal: Bool {
+        self == .completed || self == .failed
+    }
+
+    /// 业务语义：running、waiting、open 都表示还有未终结的 Codex 工作。
+    public var isNonTerminalWork: Bool {
+        isActive || isOpen
     }
 }
 
@@ -343,6 +362,87 @@ public struct CodexThreadSummary: Identifiable, Equatable {
         self.status = status
         self.detail = detail
         self.updatedAt = updatedAt
+    }
+}
+
+public struct CodexThreadCounts: Equatable {
+    public var total: Int
+    public var active: Int
+    public var open: Int
+    public var terminal: Int
+
+    public init(total: Int = 0, active: Int = 0, open: Int = 0, terminal: Int = 0) {
+        self.total = total
+        self.active = active
+        self.open = open
+        self.terminal = terminal
+    }
+
+    /// 业务语义：线程计数必须来自截断前的完整生命周期集合。
+    public static func from(_ threads: [CodexThreadSummary]) -> CodexThreadCounts {
+        CodexThreadCounts(
+            total: threads.count,
+            active: threads.filter { $0.status.isActive }.count,
+            open: threads.filter { $0.status.isOpen }.count,
+            terminal: threads.filter { $0.status.isTerminal }.count
+        )
+    }
+}
+
+public enum CodexReviewAttentionTone: String, Equatable {
+    case completed
+    case failed
+}
+
+public struct CodexReviewAttentionCue: Equatable {
+    public var text: String
+    public var symbolName: String
+    public var tone: CodexReviewAttentionTone
+
+    /// 业务语义：attention cue 用稳定字段表达结果提醒语气，避免 UI 重新解释 Codex lifecycle。
+    public init(text: String, symbolName: String, tone: CodexReviewAttentionTone) {
+        self.text = text
+        self.symbolName = symbolName
+        self.tone = tone
+    }
+}
+
+public struct CodexReviewItem: Identifiable, Equatable {
+    public let id: String
+    public var threadID: String
+    public var title: String
+    public var status: CodexThreadStatus
+    public var detail: String
+    public var createdAt: Date
+
+    public init(threadID: String, title: String, status: CodexThreadStatus, detail: String, createdAt: Date) {
+        self.id = threadID
+        self.threadID = threadID
+        self.title = title
+        self.status = status
+        self.detail = detail
+        self.createdAt = createdAt
+    }
+
+    /// 业务语义：为 collapsed 刘海提供短结果提示，避免完成/失败状态被配额文案淹没。
+    public var cueText: String {
+        status == .failed ? "Codex failed" : "Codex done"
+    }
+
+    /// 业务语义：为 UI 动画提供完成/失败的稳定提示语气，不让视图层猜测协议状态。
+    public var attentionCue: CodexReviewAttentionCue {
+        if status == .failed {
+            return CodexReviewAttentionCue(
+                text: cueText,
+                symbolName: "exclamationmark.triangle.fill",
+                tone: .failed
+            )
+        }
+        return CodexReviewAttentionCue(
+            text: cueText,
+            symbolName: "checkmark.seal.fill",
+            tone: .completed
+        )
     }
 }
 
@@ -363,6 +463,7 @@ public struct CodexIntegrationFinding: Identifiable, Equatable {
 public struct CodexMonitorSnapshot: Equatable {
     public var usage: CodexUsageSnapshot
     public var threads: [CodexThreadSummary]
+    public var threadCounts: CodexThreadCounts
     public var findings: [CodexIntegrationFinding]
     public var refreshedAt: Date
 
@@ -370,16 +471,30 @@ public struct CodexMonitorSnapshot: Equatable {
         usage: CodexUsageSnapshot,
         threads: [CodexThreadSummary],
         findings: [CodexIntegrationFinding],
-        refreshedAt: Date
+        refreshedAt: Date,
+        threadCounts: CodexThreadCounts? = nil
     ) {
+        let reduced = CodexThreadLifecycleReducer.reduce(threads: threads)
         self.usage = usage
-        self.threads = threads
+        self.threads = reduced.visibleThreads
+        self.threadCounts = threadCounts ?? reduced.counts
         self.findings = findings
         self.refreshedAt = refreshedAt
     }
 
+    /// 业务语义：active 计数来自完整生命周期集合，而不是刘海列表的 8 条展示上限。
     public var activeThreadCount: Int {
-        threads.filter { $0.status.isActive }.count
+        threadCounts.active
+    }
+
+    /// 业务语义：open 计数表达仍需关注但没有明确运行态的 Codex 对话。
+    public var openThreadCount: Int {
+        threadCounts.open
+    }
+
+    /// 业务语义：terminal 计数用于健康诊断，不直接代表待 review 数。
+    public var terminalThreadCount: Int {
+        threadCounts.terminal
     }
 
     public var latestThread: CodexThreadSummary? {

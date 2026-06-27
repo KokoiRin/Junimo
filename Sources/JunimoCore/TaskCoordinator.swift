@@ -21,6 +21,7 @@ public final class TaskCoordinator: ObservableObject {
     @Published public private(set) var projectProfile: ProjectProfileSummary
     @Published public private(set) var sessions: [ExecutionSessionSummary]
     @Published public private(set) var codexMonitor: CodexMonitorSnapshot
+    @Published public private(set) var codexReviewItems: [CodexReviewItem]
     @Published public private(set) var preferences: ConsolePreferences
     @Published public var theme: ConsoleTheme
     @Published public private(set) var activePomodoro: PomodoroSession?
@@ -39,13 +40,12 @@ public final class TaskCoordinator: ObservableObject {
     public var layoutPreferencesDidChange: ((ConsolePreferences) -> Void)?
     public var cornerNoteExpansionDidChange: ((Bool) -> Void)?
 
-    private let actionCore: ActionCore
-    private let pomodoroCore: PomodoroCore
-    private let commandCatalogCore: CommandCatalogCore
-    private let sessionTimelineCore: SessionTimelineCore
-    private let preferencesCore: PreferencesCore
-    private let consoleStateCore: ConsoleStateCore
-    private let cornerNoteCore: CornerNoteCore
+    private var consoleFeature: ConsoleFeature
+    private var pomodoroFeature: PomodoroFeature
+    private var codexFeature: CodexFeature
+    private var cornerNoteFeature: CornerNoteFeature
+    private var preferencesFeature: PreferencesFeature
+    private var notificationOutbox: NotificationOutbox
     private var nowProvider: () -> Date
 
     public init(
@@ -54,30 +54,28 @@ public final class TaskCoordinator: ObservableObject {
         nowProvider: @escaping () -> Date = Date.init
     ) {
         let resolvedCore = core ?? SwiftFallbackCore()
-        self.actionCore = resolvedCore
-        self.pomodoroCore = resolvedCore
-        self.commandCatalogCore = resolvedCore
-        self.sessionTimelineCore = resolvedCore
-        self.preferencesCore = resolvedCore
-        self.consoleStateCore = resolvedCore
-        self.cornerNoteCore = resolvedCore
+        self.consoleFeature = ConsoleFeature(core: resolvedCore)
+        self.pomodoroFeature = PomodoroFeature(core: resolvedCore)
+        self.codexFeature = CodexFeature(now: now)
+        self.cornerNoteFeature = CornerNoteFeature(core: resolvedCore)
+        self.preferencesFeature = PreferencesFeature(core: resolvedCore)
+        self.notificationOutbox = NotificationOutbox()
         self.nowProvider = nowProvider
-        let cornerNoteSnapshot = resolvedCore.cornerNote()
-        self.agents = resolvedCore.agents()
-        self.actions = resolvedCore.actions()
-        self.recentActivities = resolvedCore.recentActivities()
-        self.commandQuery = ""
-        self.commandResults = resolvedCore.searchCommands(query: "")
-        self.projectProfile = resolvedCore.projectProfile()
-        self.sessions = resolvedCore.recentSessions()
-        self.codexMonitor = CodexMonitorSnapshot.researchedDefault(now: now)
-        let resolvedPreferences = resolvedCore.uiPreferences()
-        self.preferences = resolvedPreferences
-        self.theme = ConsoleTheme(accent: resolvedPreferences.accent)
-        self.activePomodoro = resolvedCore.activePomodoro()
-        self.pendingNotifications = []
-        self.cornerNoteText = cornerNoteSnapshot.text
-        self.cornerTodos = cornerNoteSnapshot.todos
+        self.agents = consoleFeature.agents
+        self.actions = consoleFeature.actions
+        self.recentActivities = consoleFeature.recentActivities
+        self.commandQuery = consoleFeature.commandQuery
+        self.commandResults = consoleFeature.commandResults
+        self.projectProfile = consoleFeature.projectProfile
+        self.sessions = consoleFeature.sessions
+        self.codexMonitor = codexFeature.monitor
+        self.codexReviewItems = codexFeature.reviewItems
+        self.preferences = preferencesFeature.preferences
+        self.theme = preferencesFeature.theme
+        self.activePomodoro = pomodoroFeature.activePomodoro
+        self.pendingNotifications = notificationOutbox.pending
+        self.cornerNoteText = cornerNoteFeature.snapshot.text
+        self.cornerTodos = cornerNoteFeature.snapshot.todos
     }
 
     public func pointerEntered(at date: Date? = nil) {
@@ -92,23 +90,12 @@ public final class TaskCoordinator: ObservableObject {
         completePomodoroIfNeeded(now: date)
     }
 
+    /// 业务语义：coordinator 只转发 action intent，console feature 返回的 effects 再接入兼容桥。
     public func performAction(id: String, now: Date? = nil) {
-        guard let action = actions.first(where: { $0.id == id }) else {
-            return
-        }
-
         let date = now ?? nowProvider()
-        let result = actionCore.run(action: action, at: date)
-        refreshConsoleState()
-        if action.id == "codex" {
-            updateCodexThread(
-                id: "junimo-local-codex",
-                title: "Junimo Codex",
-                status: .running,
-                detail: result.detail,
-                now: date
-            )
-        }
+        let effects = consoleFeature.performAction(id: id, now: date)
+        syncConsoleFeatureProjection()
+        consumeConsoleFeatureEffects(effects)
     }
 
     public func performCommand(id: String, now: Date? = nil) {
@@ -122,198 +109,212 @@ public final class TaskCoordinator: ObservableObject {
         }
     }
 
+    /// 业务语义：coordinator 只转发 accent intent，preferences/theme 投影由 PreferencesFeature 维护。
     public func setAccent(_ accent: ConsoleAccent) {
-        let updated = preferencesCore.setAccent(accent)
-        preferences = updated
-        theme.accent = updated.accent
+        let updated = preferencesFeature.setAccent(accent)
+        syncPreferencesFeatureProjection()
         layoutPreferencesDidChange?(updated)
     }
 
+    /// 业务语义：coordinator 只转发 density intent，并保留既有 layout callback 兼容路径。
     public func setDensity(_ density: ConsoleDensity) {
-        let updated = preferencesCore.setDensity(density)
-        preferences = updated
-        theme.accent = updated.accent
+        let updated = preferencesFeature.setDensity(density)
+        syncPreferencesFeatureProjection()
         layoutPreferencesDidChange?(updated)
     }
 
+    /// 业务语义：coordinator 只转发 command query，搜索状态由 ConsoleFeature 拥有。
     public func updateCommandQuery(_ query: String) {
-        commandQuery = query
-        commandResults = commandCatalogCore.searchCommands(query: query)
+        consoleFeature.updateCommandQuery(query)
+        syncConsoleFeatureProjection()
     }
 
+    /// 业务语义：coordinator 只转发启动 Pomodoro 意图，并同步 feature/core 的公开投影。
     public func startPomodoro(duration: TimeInterval = 25 * 60, now: Date? = nil) {
         let date = now ?? nowProvider()
-        pomodoroCore.start(duration: duration, at: date)
+        pomodoroFeature.start(duration: duration, now: date)
+        syncPomodoroFeatureProjection()
         refreshConsoleState()
     }
 
+    /// 业务语义：coordinator 只转发取消 Pomodoro 意图，取消规则和活动记录仍由 core 处理。
     public func cancelPomodoro(now: Date? = nil) {
         let date = now ?? nowProvider()
-        let result = pomodoroCore.cancel(at: date)
-        if result.changed {
+        if pomodoroFeature.cancel(now: date) {
+            syncPomodoroFeatureProjection()
             refreshConsoleState()
         }
     }
 
     public func markNotificationDelivered(id: UUID) {
-        pendingNotifications.removeAll { $0.id == id }
+        objectWillChange.send()
+        notificationOutbox.markDelivered(id: id)
+        syncNotificationOutboxProjection()
+    }
+
+    /// 业务语义：collapsed 刘海右侧优先显示待处理结果，其次显示活跃 Codex 状态，最后显示配额。
+    public var codexCollapsedStatusText: String {
+        codexFeature.collapsedStatusText
+    }
+
+    /// 业务语义：诊断和兼容层通过 Codex feature 快照读取状态，不能重新拥有 Codex 规则。
+    public var codexFeatureSnapshot: CodexFeatureSnapshot {
+        codexFeature.snapshot
+    }
+
+    /// 业务语义：coordinator 只把确认意图转发给 Codex feature，不直接拥有 review 状态。
+    public func acknowledgeCodexReview(id: String) {
+        objectWillChange.send()
+        codexFeature.acknowledgeReview(id: id)
+        syncCodexFeatureProjection()
+    }
+
+    /// 业务语义：collapsed 快捷确认由 Codex feature 决定最新 review 是哪一个。
+    public func acknowledgeLatestCodexReview() {
+        objectWillChange.send()
+        codexFeature.acknowledgeLatestReview()
+        syncCodexFeatureProjection()
     }
 
     public func setCornerNoteExpanded(_ isExpanded: Bool) {
-        isCornerNoteExpanded = isExpanded
+        cornerNoteFeature.setExpanded(isExpanded)
+        syncCornerNoteFeatureProjection()
     }
 
     public func updateCornerNoteText(_ text: String) {
-        applyCornerNoteSnapshot(cornerNoteCore.updateCornerNoteText(text))
+        cornerNoteFeature.updateText(text)
+        syncCornerNoteFeatureProjection()
     }
 
     public func addCornerTodo(title: String = "") {
-        applyCornerNoteSnapshot(cornerNoteCore.addCornerTodo(title: title))
+        cornerNoteFeature.addTodo(title: title)
+        syncCornerNoteFeatureProjection()
     }
 
     public func updateCornerTodo(id: UUID, title: String) {
-        applyCornerNoteSnapshot(cornerNoteCore.updateCornerTodo(id: id, title: title))
+        cornerNoteFeature.updateTodo(id: id, title: title)
+        syncCornerNoteFeatureProjection()
     }
 
     public func toggleCornerTodo(id: UUID) {
-        applyCornerNoteSnapshot(cornerNoteCore.toggleCornerTodo(id: id))
+        cornerNoteFeature.toggleTodo(id: id)
+        syncCornerNoteFeatureProjection()
     }
 
     public func removeCornerTodo(id: UUID) {
-        applyCornerNoteSnapshot(cornerNoteCore.removeCornerTodo(id: id))
+        cornerNoteFeature.removeTodo(id: id)
+        syncCornerNoteFeatureProjection()
     }
 
+    /// 业务语义：snapshot 只更新观测到的状态，不能把缺失线程伪造成完成。
     public func refreshCodexMonitor(_ snapshot: CodexMonitorSnapshot, now: Date? = nil) {
+        objectWillChange.send()
         let date = now ?? nowProvider()
-        let incomingThreadIDs = Set(snapshot.threads.map(\.id))
-        let missingActiveThreads = codexMonitor.threads.filter { thread in
-            thread.status.isActive && !incomingThreadIDs.contains(thread.id)
-        }
-
-        codexMonitor.usage = snapshot.usage
-        codexMonitor.findings = snapshot.findings
-        codexMonitor.refreshedAt = snapshot.refreshedAt
-        codexMonitor.threads.removeAll { thread in
-            !thread.status.isActive && !incomingThreadIDs.contains(thread.id)
-        }
-
-        for thread in snapshot.threads {
-            updateCodexThread(
-                id: thread.id,
-                title: thread.title,
-                status: thread.status,
-                detail: thread.detail,
-                now: thread.updatedAt
-            )
-        }
-
-        for thread in missingActiveThreads {
-            updateCodexThread(
-                id: thread.id,
-                title: thread.title,
-                status: .completed,
-                detail: "Thread no longer appears in the latest Codex snapshot",
-                now: date
-            )
-        }
-
-        refreshCodexAgentStatus(now: date)
+        let effects = codexFeature.refreshMonitor(snapshot, now: date)
+        syncCodexFeatureProjection()
+        consumeCodexFeatureEffects(effects)
     }
 
+    /// 业务语义：realtime 事件是明确生命周期迁移的入口，terminal review 只能从这里或等价显式状态进入。
+    public func applyCodexRealtimeEvent(_ event: CodexRealtimeEvent, now: Date? = nil) {
+        objectWillChange.send()
+        let date = now ?? nowProvider()
+        let effects = codexFeature.applyRealtimeEvent(event, now: date)
+        syncCodexFeatureProjection()
+        consumeCodexFeatureEffects(effects)
+    }
+
+    /// 业务语义：统一应用单个 Codex 线程生命周期，并只对明确 terminal 迁移产生 review。
     public func updateCodexThread(id: String, title: String, status: CodexThreadStatus, detail: String, now: Date? = nil) {
+        objectWillChange.send()
         let date = now ?? nowProvider()
-        let previousStatus = codexMonitor.threads.first(where: { $0.id == id })?.status
-        let updatedThread = CodexThreadSummary(id: id, title: title, status: status, detail: detail, updatedAt: date)
-
-        if let index = codexMonitor.threads.firstIndex(where: { $0.id == id }) {
-            codexMonitor.threads[index] = updatedThread
-        } else {
-            codexMonitor.threads.insert(updatedThread, at: 0)
-        }
-
-        codexMonitor.threads.sort { $0.updatedAt > $1.updatedAt }
-        if codexMonitor.threads.count > 8 {
-            codexMonitor.threads.removeLast(codexMonitor.threads.count - 8)
-        }
-
-        if previousStatus?.isActive == true && !status.isActive {
-            let notification = NotificationRequest(
-                title: status == .failed ? "Codex thread failed" : "Codex thread complete",
-                body: "\(title): \(detail)",
-                createdAt: date
-            )
-            pendingNotifications.append(notification)
-            recordActivity(
-                title: notification.title,
-                detail: notification.body,
-                date: date
-            )
-        }
-
-        refreshCodexAgentStatus(now: date)
+        let effects = codexFeature.updateThread(id: id, title: title, status: status, detail: detail, now: date)
+        syncCodexFeatureProjection()
+        consumeCodexFeatureEffects(effects)
     }
 
+    /// 业务语义：Pomodoro 完成 effect 只从 PomodoroFeature 进入通知 outbox。
     private func completePomodoroIfNeeded(now: Date) {
-        let result = pomodoroCore.advanceTime(to: now)
-        guard result.completed else {
+        let effects = pomodoroFeature.advanceTime(to: now)
+        syncPomodoroFeatureProjection()
+        guard !effects.isEmpty else {
             return
         }
-        let notification = NotificationRequest(
-            title: result.notificationTitle,
-            body: result.notificationBody,
-            createdAt: now
-        )
-        pendingNotifications.append(notification)
+        notificationOutbox.enqueue(contentsOf: effects.notifications)
+        syncNotificationOutboxProjection()
         refreshConsoleState()
     }
 
     private func updateAgent(id: String, status: AgentStatus, detail: String) {
-        guard let index = agents.firstIndex(where: { $0.id == id }) else {
-            return
-        }
-        agents[index].status = status
-        agents[index].detail = detail
+        consoleFeature.updateAgentProjection(id: id, status: status, detail: detail)
+        syncConsoleFeatureProjection()
     }
 
-    private func refreshCodexAgentStatus(now: Date) {
-        let activeCount = codexMonitor.activeThreadCount
-        if activeCount > 0 {
-            updateAgent(
-                id: "codex",
-                status: .running,
-                detail: "\(activeCount) Codex thread\(activeCount == 1 ? "" : "s") active"
-            )
-            return
-        }
-
-        if let latest = codexMonitor.latestThread {
-            let agentStatus: AgentStatus = latest.status == .failed ? .failed : .succeeded
-            updateAgent(id: "codex", status: agentStatus, detail: latest.detail)
-            return
-        }
-
-        updateAgent(id: "codex", status: .idle, detail: codexMonitor.usage.detail)
+    /// 业务语义：兼容 coordinator 只同步 Codex feature 的公开投影，避免成为第二个 Codex 状态 owner。
+    private func syncCodexFeatureProjection() {
+        codexMonitor = codexFeature.monitor
+        codexReviewItems = codexFeature.reviewItems
+        let projection = codexFeature.agentProjection
+        updateAgent(id: "codex", status: projection.status, detail: projection.detail)
     }
 
+    /// 业务语义：Codex feature 产生副作用请求，coordinator 负责落到现有通知队列和活动时间线。
+    private func consumeCodexFeatureEffects(_ effects: CodexFeatureEffects) {
+        notificationOutbox.enqueue(contentsOf: effects.notifications)
+        syncNotificationOutboxProjection()
+        for activity in effects.activities {
+            recordActivity(title: activity.title, detail: activity.detail, date: activity.date)
+        }
+    }
+
+    /// 业务语义：Codex 状态只来自 adapter 观测，console action 不能伪造 running thread。
+    private func consumeConsoleFeatureEffects(_ effects: ConsoleFeatureEffects) {
+        _ = effects
+    }
+
+    /// 业务语义：coordinator 暴露通知队列投影给 app shell，但不直接拥有 outbox 状态。
+    private func syncNotificationOutboxProjection() {
+        pendingNotifications = notificationOutbox.pending
+    }
+
+    /// 业务语义：coordinator 只同步 PomodoroFeature 投影，避免重新拥有 timer effect 规则。
+    private func syncPomodoroFeatureProjection() {
+        activePomodoro = pomodoroFeature.activePomodoro
+    }
+
+    /// 业务语义：外部 feature 记录 console activity 时仍通过 ConsoleFeature 同步 timeline 投影。
     private func recordActivity(title: String, detail: String, date: Date) {
-        consoleStateCore.recordActivity(title: title, detail: detail, at: date)
-        recentActivities = consoleStateCore.recentActivities()
+        consoleFeature.recordActivity(title: title, detail: detail, date: date)
+        syncConsoleFeatureProjection()
     }
 
-    private func refreshSessions() {
-        sessions = sessionTimelineCore.recentSessions()
-    }
-
+    /// 业务语义：console state refresh 只刷新 action/catalog/activity/session 投影。
     private func refreshConsoleState() {
-        agents = consoleStateCore.agents()
-        actions = consoleStateCore.actions()
-        recentActivities = consoleStateCore.recentActivities()
-        activePomodoro = consoleStateCore.activePomodoro()
-        refreshSessions()
+        consoleFeature.refreshState()
+        syncConsoleFeatureProjection()
     }
 
-    private func applyCornerNoteSnapshot(_ snapshot: CornerNoteSnapshot) {
-        cornerNoteText = snapshot.text
-        cornerTodos = snapshot.todos
+    /// 业务语义：coordinator 只同步 ConsoleFeature 的公开投影，避免重新拥有 action/catalog/session 状态。
+    private func syncConsoleFeatureProjection() {
+        agents = consoleFeature.agents
+        actions = consoleFeature.actions
+        recentActivities = consoleFeature.recentActivities
+        commandQuery = consoleFeature.commandQuery
+        commandResults = consoleFeature.commandResults
+        projectProfile = consoleFeature.projectProfile
+        sessions = consoleFeature.sessions
+    }
+
+    /// 业务语义：coordinator 只同步 PreferencesFeature 投影，layout callback 留在兼容层。
+    private func syncPreferencesFeatureProjection() {
+        preferences = preferencesFeature.preferences
+        theme = preferencesFeature.theme
+    }
+
+    /// 业务语义：coordinator 只同步 CornerNoteFeature 的公开投影，避免成为第二个便签状态 owner。
+    private func syncCornerNoteFeatureProjection() {
+        isCornerNoteExpanded = cornerNoteFeature.snapshot.isExpanded
+        cornerNoteText = cornerNoteFeature.snapshot.text
+        cornerTodos = cornerNoteFeature.snapshot.todos
     }
 }

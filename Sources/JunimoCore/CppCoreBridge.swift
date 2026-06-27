@@ -338,6 +338,23 @@ public struct CppPomodoroResult: Equatable {
     public var activityDetail: String
     public var notificationTitle: String
     public var notificationBody: String
+
+    /// 业务语义：公开 Pomodoro core 结果构造器，让 feature tests 可以用 fake core 覆盖 effect 边界。
+    public init(
+        changed: Bool,
+        completed: Bool,
+        activityTitle: String,
+        activityDetail: String,
+        notificationTitle: String,
+        notificationBody: String
+    ) {
+        self.changed = changed
+        self.completed = completed
+        self.activityTitle = activityTitle
+        self.activityDetail = activityDetail
+        self.notificationTitle = notificationTitle
+        self.notificationBody = notificationBody
+    }
 }
 
 public final class CppCoreEngine {

@@ -106,9 +106,20 @@ final class TaskCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pendingNotifications.first?.title, "Codex thread complete")
         XCTAssertEqual(coordinator.recentActivities.first?.title, "Codex thread complete")
         XCTAssertEqual(coordinator.agents.first(where: { $0.id == "codex" })?.status, .succeeded)
+        XCTAssertEqual(coordinator.codexReviewItems.first?.threadID, "thread-1")
+        XCTAssertEqual(coordinator.codexReviewItems.first?.status, .completed)
+
+        if let notificationID = coordinator.pendingNotifications.first?.id {
+            coordinator.markNotificationDelivered(id: notificationID)
+        }
+        XCTAssertTrue(coordinator.pendingNotifications.isEmpty)
+        XCTAssertEqual(coordinator.codexReviewItems.count, 1)
+
+        coordinator.acknowledgeLatestCodexReview()
+        XCTAssertTrue(coordinator.codexReviewItems.isEmpty)
     }
 
-    func testCodexMonitorRefreshCompletesMissingActiveThreads() {
+    func testCodexMonitorRefreshDoesNotCompleteMissingActiveThreads() {
         let start = Date(timeIntervalSince1970: 140)
         let coordinator = TaskCoordinator(now: start)
         coordinator.updateCodexThread(
@@ -129,9 +140,10 @@ final class TaskCoordinatorTests: XCTestCase {
             now: start.addingTimeInterval(30)
         )
 
-        XCTAssertEqual(coordinator.codexMonitor.activeThreadCount, 0)
-        XCTAssertEqual(coordinator.codexMonitor.threads.first?.status, .completed)
-        XCTAssertEqual(coordinator.pendingNotifications.first?.title, "Codex thread complete")
+        XCTAssertEqual(coordinator.codexMonitor.activeThreadCount, 1)
+        XCTAssertEqual(coordinator.codexMonitor.threads.first?.status, .running)
+        XCTAssertTrue(coordinator.pendingNotifications.isEmpty)
+        XCTAssertTrue(coordinator.codexReviewItems.isEmpty)
     }
 
     func testCodexCLIStatusProviderParsesDoctorAndCloudTaskJSON() {
@@ -175,6 +187,8 @@ final class TaskCoordinatorTests: XCTestCase {
         XCTAssertEqual(snapshot.usage.status, .available)
         XCTAssertEqual(snapshot.usage.summaryText, "28% left")
         XCTAssertTrue(snapshot.threads.contains(where: { $0.id == "local:thread_local_1" && $0.status == .waiting }))
+        XCTAssertTrue(snapshot.threads.contains(where: { $0.id == "local:thread_local_2" && $0.status == .open }))
+        XCTAssertEqual(snapshot.openThreadCount, 1)
         XCTAssertTrue(snapshot.threads.contains(where: { $0.id == "cloud:task_1" && $0.status == .running }))
         XCTAssertTrue(snapshot.findings.contains(where: { $0.id == "app-server-rate-limits" && $0.status == .available }))
         XCTAssertTrue(snapshot.findings.contains(where: { $0.id == "app-server-threads" && $0.status == .available }))
@@ -306,7 +320,7 @@ final class TaskCoordinatorTests: XCTestCase {
     private static let appServerJSONL = """
     {"id":0,"result":{"codexHome":"/Users/test/.codex","platformFamily":"unix","platformOs":"macos","userAgent":"codex-test"}}
     {"id":1,"result":{"rateLimits":{"planType":"plus","primary":{"usedPercent":72,"resetsAt":1800000300,"windowDurationMins":300},"secondary":{"usedPercent":40,"windowDurationMins":10080},"credits":{"hasCredits":true,"unlimited":false,"balance":"$3.10"}}}}
-    {"id":2,"result":{"data":[{"cliVersion":"0.137.0","createdAt":1799990000,"cwd":"/Users/test/repo","ephemeral":false,"id":"thread_local_1","modelProvider":"openai","name":"Fix local build","preview":"Fix local build","sessionId":"session_1","source":{"type":"cli"},"status":{"type":"active","activeFlags":["waitingOnApproval"]},"turns":[],"updatedAt":1800000100}]}}
+    {"id":2,"result":{"data":[{"cliVersion":"0.137.0","createdAt":1799990000,"cwd":"/Users/test/repo","ephemeral":false,"id":"thread_local_1","modelProvider":"openai","name":"Fix local build","preview":"Fix local build","sessionId":"session_1","source":{"type":"cli"},"status":{"type":"active","activeFlags":["waitingOnApproval"]},"turns":[],"updatedAt":1800000100},{"cliVersion":"0.137.0","createdAt":1799990000,"cwd":"/Users/test/repo","ephemeral":false,"id":"thread_local_2","modelProvider":"openai","name":"Open local review","preview":"Open local review","sessionId":"session_2","source":{"type":"cli"},"status":{"type":"notLoaded"},"turns":[],"updatedAt":1800000090}]}}
     """
 
     func testPomodoroStartCancelAndCompletionReminder() {
