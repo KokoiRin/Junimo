@@ -46,6 +46,20 @@ to thread and turn notifications. The generated schema exposes
 `notLoaded` states. Active threads can include flags such as waiting on approval
 or user input.
 
+Junimo normalizes these source states into a smaller lifecycle model:
+
+- `running`: Codex is actively executing.
+- `waiting`: Codex is active but waiting on user input, approval, or another
+  blocking flag.
+- `open`: a non-archived conversation exists, but the current source did not
+  load a precise running state. App-server `notLoaded`, `idle`, and unknown
+  non-terminal local statuses land here.
+- `completed` / `failed`: only explicit terminal events or explicit terminal
+  source statuses.
+
+`notLoaded` is never treated as completed, and snapshot absence alone never
+creates a completion alert.
+
 Useful local diagnostics:
 
 - `codex doctor --json` reports Codex version, auth mode, app-server daemon
@@ -63,38 +77,64 @@ For Junimo-launched local runs, prefer `codex exec --json` and watch for
 
 Junimo now has a `CodexMonitorSnapshot` and `updateCodexThread(...)` entry
 point. When a known Codex thread transitions from `running` or `waiting` into
-`completed` or `failed`, `TaskCoordinator` creates a `NotificationRequest` and
-records a recent activity entry.
+`completed` or `failed`, or when an `open` thread receives an explicit terminal
+event, `TaskCoordinator` creates a `NotificationRequest` and records a recent
+activity entry. It also creates a persistent Codex review item that stays
+visible in the island until the user acknowledges it.
 
 ## Current Implementation
 
-- `TaskCoordinator.codexMonitor` stores quota source status, known Codex
-  threads, and integration findings.
+- `CodexFeature` owns quota source status, known Codex threads, review
+  attention, collapsed status priority, and agent projection.
+- `TaskCoordinator` remains a compatibility facade for SwiftUI. It delegates
+  Codex state changes to `CodexFeature` and consumes notification/activity
+  effects.
+- `CodexThreadLifecycleReducer` owns lifecycle ordering and counts. It computes
+  active, open, and terminal counts from the full normalized thread set before
+  the visible island list is limited to eight entries.
+- `CodexAdapterContracts` defines typed provider, stream, event, command, and
+  app-server query boundaries.
+- `CodexProcessRunner` owns one-shot `codex` process execution.
 - `CodexCLIStatusProvider` runs `codex doctor --json` and
   `codex cloud list --json --limit 20`, then maps the output into
   `CodexMonitorSnapshot`.
 - `ProcessCodexAppServerClient` starts `codex app-server --stdio`, performs the
   JSON-RPC initialize handshake, then reads `account/rateLimits/read` and
   `thread/list` before terminating the short-lived process.
-- `CodexStatusParser.usageSnapshot(fromAppServerRateLimitsJSON:)` parses the
-  app-server `account/rateLimits/read` response shape into the same quota model.
-- Pressing the Codex action records a Junimo-known local Codex thread as
-  running.
-- `updateCodexThread(...)` is the event ingestion point for future app-server,
-  cloud-list, and exec-JSON adapters.
-- `CodexMonitorRefreshBridge` refreshes the CLI snapshot in the background and
-  publishes it through `TaskCoordinator`.
+- `ProcessCodexAppServerEventStream` starts `codex app-server --stdio`, performs
+  the initialize handshake, and parses JSON-RPC notifications such as
+  `account/rateLimitsUpdated`, `thread/statusChanged`, `turn/completed`, and
+  failure events into realtime monitor events.
+- `ProcessCodexExecEventStream` wraps `codex exec --json` JSONL streams when an
+  app-owned adapter needs to observe them, mapping `thread.started`,
+  `turn.started`, `turn.completed`, `turn.failed`, and `error` events into the
+  same realtime monitor path.
+- `CodexStatusParser` parses doctor, cloud list, app-server quota, and
+  app-server thread-list payloads into typed monitor snapshots.
+- `CodexRealtimeEventParser` parses app-server notifications and exec JSONL
+  lines into typed `CodexRealtimeEvent` values.
+- `CodexMonitorService` connects provider snapshots and realtime streams to a
+  typed `CodexMonitorEventSink`. `CodexMonitorRefreshBridge` is now the thin app
+  shell wrapper around that service.
+- Pressing the Codex action no longer creates a placeholder running thread.
+  Running/waiting/open/completed/failed state must come from adapter snapshots
+  or realtime events.
+- `CodexFeature.updateThread(...)` and `CodexFeature.applyRealtimeEvent(...)`
+  are the product-state ingestion points for app-server, cloud-list, and
+  exec-JSON adapters.
 - The expanded island UI shows quota source, active/known thread count, and
-  whether a Codex completion alert is pending.
+  whether a Codex completion alert is pending. When a review item is pending,
+  the collapsed island's right-side status pill shows `Codex done` or
+  `Codex failed`; the collapsed island renders a persistent animated attention
+  cue, and the collapsed status pill and badge can acknowledge the latest
+  result directly. Without a review or active thread, remaining open
+  conversations show as `Codex open N` before the UI falls back to quota text.
+  The expanded island also shows the latest result with an acknowledgement
+  control.
 
 ## Next Adapter Work
 
-1. Replace the short-lived `codex app-server --stdio` probe with a reusable
-   app-server session or `unix://` connection so Junimo does not respawn the
-   server for every refresh.
-2. Subscribe to app-server notifications such as `thread/statusChanged`,
-   `turn/completed`, and `account/rateLimitsUpdated`.
-3. Wrap `codex exec --json` when Junimo starts a local Codex task, streaming
-   JSONL into `updateCodexThread(...)`.
-4. Keep command execution off the SwiftUI render path. Refresh in background and
+1. Move from stdio app-server streaming to a reusable `unix://` connection if
+   the local Codex app-server exposes one for rich clients.
+2. Keep command execution off the SwiftUI render path. Refresh in background and
    publish snapshots onto the main actor.

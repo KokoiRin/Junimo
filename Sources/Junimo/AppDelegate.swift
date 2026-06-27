@@ -2,27 +2,20 @@ import AppKit
 import JunimoCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let coordinator = TaskCoordinator()
+    private var runtime: JunimoRuntime?
     private var panelController: NotchPanelController?
     private var cornerNotePanelController: CornerNotePanelController?
-    private var reminderBridge: ReminderDeliveryBridge?
-    private var codexMonitorBridge: CodexMonitorRefreshBridge?
     private var statusItem: NSStatusItem?
-    private let healthReporter = LaunchHealthReporter()
 
+    /// 业务语义：AppDelegate 只组装 AppKit surface，把产品 runtime wiring 交给 JunimoRuntime。
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        reminderBridge = ReminderDeliveryBridge(
-            coordinator: coordinator,
-            adapter: UserNotificationReminderAdapter()
+        let runtime = JunimoRuntime(
+            codexMonitorEnabled: ProcessInfo.processInfo.environment["JUNIMO_DISABLE_CODEX_MONITOR"] != "1"
         )
-        if ProcessInfo.processInfo.environment["JUNIMO_DISABLE_CODEX_MONITOR"] != "1" {
-            let bridge = CodexMonitorRefreshBridge(coordinator: coordinator)
-            codexMonitorBridge = bridge
-            bridge.start()
-        }
-
+        self.runtime = runtime
+        let coordinator = runtime.coordinator
         let controller = NotchPanelController(coordinator: coordinator)
         panelController = controller
         controller.show()
@@ -30,39 +23,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cornerNotePanelController = cornerController
         cornerController.show()
         installStatusItem()
-        DispatchQueue.main.async { [coordinator, healthReporter] in
+        runtime.start { [weak runtime, weak controller] in
+            guard let runtime, let controller else { return }
+            runtime.writeHealth(panel: controller.diagnostics())
+        }
+        DispatchQueue.main.async { [weak runtime] in
+            guard let runtime else { return }
             if ProcessInfo.processInfo.environment["JUNIMO_HEALTH_SCENARIO"] == "1" {
-                coordinator.pointerEntered()
-                coordinator.updateCommandQuery("focus")
-                coordinator.performCommand(id: "codex")
-                coordinator.performCommand(id: "pomodoro-10s")
-                coordinator.setDensity(.compact)
-                coordinator.setCornerNoteExpanded(true)
-                coordinator.updateCornerNoteText("Health scenario note")
-                coordinator.addCornerTodo(title: "Verify corner note")
+                runtime.runLaunchHealthScenario()
                 controller.show()
                 cornerController.show()
             }
-            healthReporter.write(coordinator: coordinator, panel: controller.diagnostics())
+            runtime.writeHealth(panel: controller.diagnostics())
         }
     }
 
+    /// 业务语义：Junimo 是菜单栏辅助工具，关闭窗口不等于退出应用。
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
 
+    /// 业务语义：应用退出时通过 runtime 停止后台 monitor，避免 AppKit 层散落清理逻辑。
     func applicationWillTerminate(_ notification: Notification) {
-        codexMonitorBridge?.stop()
+        runtime?.stop()
     }
 
+    /// 业务语义：状态栏 Show 命令只恢复 app shell 面板，不触碰产品 runtime wiring。
     @objc private func showPanelFromMenu() {
         panelController?.expandAndShow()
     }
 
+    /// 业务语义：状态栏 Quit 命令保持 macOS app shell 的退出入口。
     @objc private func quitFromMenu() {
         NSApp.terminate(nil)
     }
 
+    /// 业务语义：状态栏菜单属于 AppKit surface，不进入产品 runtime。
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "leaf.fill", accessibilityDescription: "Junimo")

@@ -2,47 +2,31 @@ import Foundation
 import JunimoCore
 
 final class CodexMonitorRefreshBridge {
-    private weak var coordinator: TaskCoordinator?
-    private let provider: CodexCLIStatusProvider
-    private let interval: TimeInterval
-    private var timer: Timer?
-    private var isRefreshing = false
+    private let service: CodexMonitorService
 
     init(
         coordinator: TaskCoordinator,
-        provider: CodexCLIStatusProvider = CodexCLIStatusProvider(),
-        interval: TimeInterval = 120
+        provider: CodexMonitorSnapshotProviding = CodexCLIStatusProvider(),
+        realtimeStream: CodexRealtimeEventStreaming? = ProcessCodexAppServerEventStream(),
+        interval: TimeInterval = 120,
+        onMonitorUpdated: (() -> Void)? = nil
     ) {
-        self.coordinator = coordinator
-        self.provider = provider
-        self.interval = interval
+        self.service = CodexMonitorService(
+            sink: coordinator,
+            provider: provider,
+            realtimeStream: realtimeStream,
+            interval: interval,
+            onMonitorUpdated: onMonitorUpdated
+        )
     }
 
+    /// 业务语义：app shell bridge 只启动 core monitor service，不直接解释 Codex 协议。
     func start() {
-        refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.refresh()
-        }
+        service.start()
     }
 
+    /// 业务语义：app shell bridge 停止 monitor service，避免生命周期逻辑散在 AppKit 层。
     func stop() {
-        timer?.invalidate()
-        timer = nil
-    }
-
-    private func refresh() {
-        guard !isRefreshing else {
-            return
-        }
-        isRefreshing = true
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self else { return }
-            let snapshot = provider.loadSnapshot()
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                coordinator?.refreshCodexMonitor(snapshot)
-                isRefreshing = false
-            }
-        }
+        service.stop()
     }
 }

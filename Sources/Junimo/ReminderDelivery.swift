@@ -11,13 +11,16 @@ final class ReminderDeliveryBridge {
     private var cancellable: AnyCancellable?
     private var deliveredIDs = Set<UUID>()
 
+    /// 业务语义：通知投递后延迟确认，避免 @Published willSet 重入覆盖 pending 队列清理。
     init(coordinator: TaskCoordinator, adapter: ReminderDelivering) {
         cancellable = coordinator.$pendingNotifications.sink { [weak self, weak coordinator] requests in
             guard let self else { return }
             for request in requests where !deliveredIDs.contains(request.id) {
                 deliveredIDs.insert(request.id)
                 adapter.deliver(request)
-                coordinator?.markNotificationDelivered(id: request.id)
+                DispatchQueue.main.async {
+                    coordinator?.markNotificationDelivered(id: request.id)
+                }
             }
         }
     }

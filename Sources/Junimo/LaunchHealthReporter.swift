@@ -58,6 +58,7 @@ final class LaunchHealthReporter {
                     "topOffset": coordinator.preferences.topOffset
                 ]
             ],
+            "codex": codexPayload(coordinator: coordinator),
             "cornerNote": [
                 "expanded": coordinator.isCornerNoteExpanded,
                 "noteLength": coordinator.cornerNoteText.count,
@@ -73,5 +74,37 @@ final class LaunchHealthReporter {
             try? "Junimo health write failed: \(error)\n".write(toFile: errorPath, atomically: true, encoding: .utf8)
             fputs("Junimo health write failed: \(error)\n", stderr)
         }
+    }
+
+    /// 业务语义：健康快照暴露 normalized lifecycle counts，方便排查 UI 与状态源是否一致。
+    private func codexPayload(coordinator: TaskCoordinator) -> [String: Any] {
+        let codex = coordinator.codexFeatureSnapshot
+        let monitor = codex.monitor
+        let latestThread = monitor.latestThread
+        let latestReview = codex.reviewItems.first
+        return [
+            "collapsedStatus": codex.collapsedStatusText,
+            "usage": [
+                "summary": monitor.usage.summaryText,
+                "source": monitor.usage.source,
+                "status": monitor.usage.status.rawValue,
+                "detail": monitor.usage.detail
+            ],
+            "threads": [
+                "count": monitor.threads.count,
+                "active": monitor.activeThreadCount,
+                "open": monitor.openThreadCount,
+                "terminal": monitor.terminalThreadCount,
+                "latestTitle": latestThread?.title ?? "",
+                "latestStatus": latestThread?.status.rawValue ?? ""
+            ],
+            "reviews": [
+                "count": codex.reviewItems.count,
+                "latestCue": latestReview?.cueText ?? "",
+                "latestTitle": latestReview?.title ?? "",
+                "latestStatus": latestReview?.status.rawValue ?? ""
+            ],
+            "refreshedAt": ISO8601DateFormatter().string(from: monitor.refreshedAt)
+        ]
     }
 }
