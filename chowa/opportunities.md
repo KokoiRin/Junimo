@@ -7,6 +7,7 @@
 
 ## Done
 
+- [P0][新增需求] 已安装的 Junimo 可以从菜单检查 GitHub Release 新版本，发现新版本后通过 `Install Update...` 按钮从当前安装位置更新应用。归档：openspec/changes/archive/2026-06-28-add-self-update-check/
 - [P0][新增需求] Codex 状态提醒体验：Junimo 不伪造本地 running thread，只呈现 adapter 观测到的 running/waiting/done/failed，并在完成/失败时给出明显、持久、可清除的提示动画。归档：openspec/changes/archive/2026-06-27-improve-codex-status-attention/
 - [P0][架构预备] 抽出 Preferences feature owner：`PreferencesFeature` 拥有 UI preferences/theme 投影和 accent/density intents，`TaskCoordinator` 只保留 layout callback 兼容路径。归档：openspec/changes/archive/2026-06-27-extract-preferences-feature/
 - [P0][架构预备] 抽出 Console feature owner：`ConsoleFeature` 拥有 actions、command search、project profile、activities、sessions 和 running agent start effects，`TaskCoordinator` 只做兼容委托。归档：openspec/changes/archive/2026-06-27-extract-console-feature/

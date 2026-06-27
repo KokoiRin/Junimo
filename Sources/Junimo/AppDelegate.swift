@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import JunimoCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -6,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: NotchPanelController?
     private var cornerNotePanelController: CornerNotePanelController?
     private var statusItem: NSStatusItem?
+    private var statusMenuUpdateItem: NSMenuItem?
+    private var coordinatorCancellable: AnyCancellable?
 
     /// 业务语义：AppDelegate 只组装 AppKit surface，把产品 runtime wiring 交给 JunimoRuntime。
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -23,6 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cornerNotePanelController = cornerController
         cornerController.show()
         installStatusItem()
+        coordinatorCancellable = coordinator.objectWillChange.sink { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshStatusMenu()
+            }
+        }
         runtime.start { [weak runtime, weak controller] in
             guard let runtime, let controller else { return }
             runtime.writeHealth(panel: controller.diagnostics())
@@ -58,6 +66,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
+    /// 业务语义：状态栏更新入口只表达用户意图，检查和安装决策交给 runtime / core 状态。
+    @objc private func updateFromMenu() {
+        guard let runtime else { return }
+        if runtime.coordinator.selfUpdateSnapshot.state == .updateAvailable {
+            runtime.installAvailableUpdate()
+            NSApp.terminate(nil)
+        } else {
+            runtime.checkForUpdatesNow()
+        }
+        refreshStatusMenu()
+    }
+
     /// 业务语义：状态栏菜单属于 AppKit surface，不进入产品 runtime。
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -66,10 +86,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Show Junimo", action: #selector(showPanelFromMenu), keyEquivalent: ""))
+        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(updateFromMenu), keyEquivalent: "")
+        statusMenuUpdateItem = updateItem
+        menu.addItem(updateItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Junimo", action: #selector(quitFromMenu), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }
         item.menu = menu
         statusItem = item
+        refreshStatusMenu()
+    }
+
+    /// 业务语义：菜单标题是 self-update 快照的派生投影，不在 AppDelegate 内重新判断版本。
+    private func refreshStatusMenu() {
+        guard let item = statusMenuUpdateItem, let runtime else { return }
+        switch runtime.coordinator.selfUpdateSnapshot.state {
+        case .idle:
+            item.title = "Check for Updates..."
+            item.isEnabled = true
+        case .checking:
+            item.title = "Checking for Updates..."
+            item.isEnabled = false
+        case .upToDate:
+            item.title = "Junimo is Up to Date"
+            item.isEnabled = true
+        case .updateAvailable:
+            item.title = "Install Update..."
+            item.isEnabled = true
+        case .checkFailed:
+            item.title = "Check Failed - Try Again"
+            item.isEnabled = true
+        case .installing:
+            item.title = "Installing Update..."
+            item.isEnabled = false
+        case .installFailed:
+            item.title = "Install Failed - Try Again"
+            item.isEnabled = true
+        }
     }
 }

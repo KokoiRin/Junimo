@@ -14,6 +14,17 @@ The script downloads the latest GitHub Release zip from the stable release asset
 URL, without using the GitHub API, installs `Junimo.app` into `/Applications`
 when writable, and falls back to `~/Applications`.
 
+Installed apps can check for updates from the Junimo menu bar item. The first
+self-update slice exposes `Check for Updates...`; if the latest GitHub Release
+tag is newer than the running bundle version, the menu changes to
+`Install Update...` and starts an external updater for the current app location.
+
+Command-line fallback:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/KokoiRin/Junimo/main/scripts/update_latest.sh | bash
+```
+
 Useful overrides:
 
 ```bash
@@ -21,6 +32,7 @@ JUNIMO_INSTALL_DIR="$HOME/Applications" scripts/install_latest.sh
 JUNIMO_REPO="KokoiRin/Junimo" scripts/install_latest.sh
 JUNIMO_ASSET_NAME="Junimo-macos-arm64.zip" scripts/install_latest.sh
 JUNIMO_NO_OPEN=1 scripts/install_latest.sh
+JUNIMO_DRY_RUN=1 scripts/update_latest.sh
 ```
 
 ## Build Local Artifacts

@@ -16,6 +16,16 @@ the GitHub API, copies `Junimo.app` into `/Applications` when possible, falls
 back to `~/Applications`, removes the download quarantine attribute, and
 launches the app.
 
+After install, use the menu bar item `Check for Updates...`. When Junimo finds a
+new GitHub Release, the menu changes to `Install Update...`; choosing it starts
+the updater for the current app location.
+
+Command-line fallback:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/KokoiRin/Junimo/main/scripts/update_latest.sh | bash
+```
+
 ## Current Capabilities
 
 - Top-center non-activating AppKit `NSPanel` hosted with SwiftUI.
