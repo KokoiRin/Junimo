@@ -50,9 +50,11 @@ final class SoftwareUpdateService {
         isChecking = true
         coordinator.startSelfUpdateCheck(now: nowProvider())
         checker.checkLatestRelease { [weak self] result in
-            guard let self, self.isRunning else { return }
-            self.isChecking = false
-            self.coordinator.applySelfUpdateCheck(result, now: self.nowProvider())
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isRunning else { return }
+                self.isChecking = false
+                self.coordinator.applySelfUpdateCheck(result, now: self.nowProvider())
+            }
         }
     }
 }

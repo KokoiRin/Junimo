@@ -52,7 +52,7 @@ public final class TaskCoordinator: ObservableObject {
 
     public init(
         core: (ActionCore & PomodoroCore & CommandCatalogCore & SessionTimelineCore & PreferencesCore & ConsoleStateCore & CornerNoteCore)? = CppBackedCore(),
-        currentVersion: ReleaseVersion = ReleaseVersion("0.1.5")!,
+        currentVersion: ReleaseVersion = ReleaseVersion("0.1.6")!,
         now: Date = Date(),
         nowProvider: @escaping () -> Date = Date.init
     ) {
@@ -159,6 +159,12 @@ public final class TaskCoordinator: ObservableObject {
 
     /// 业务语义：coordinator 只转发更新检查 intent，版本状态由 SelfUpdateFeature 维护。
     public func startSelfUpdateCheck(now: Date? = nil) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.startSelfUpdateCheck(now: now)
+            }
+            return
+        }
         objectWillChange.send()
         selfUpdateFeature.startChecking(now: now ?? nowProvider())
         syncSelfUpdateFeatureProjection()
@@ -166,6 +172,12 @@ public final class TaskCoordinator: ObservableObject {
 
     /// 业务语义：release 检查结果通过 SelfUpdateFeature 转成公开投影，coordinator 不做网络解释。
     public func applySelfUpdateCheck(_ result: SelfUpdateCheckResult, now: Date? = nil) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.applySelfUpdateCheck(result, now: now)
+            }
+            return
+        }
         objectWillChange.send()
         selfUpdateFeature.applyReleaseCheck(result, now: now ?? nowProvider())
         syncSelfUpdateFeatureProjection()
@@ -173,6 +185,12 @@ public final class TaskCoordinator: ObservableObject {
 
     /// 业务语义：安装 intent 必须先经过 SelfUpdateFeature 的可安装状态门禁。
     public func startSelfUpdateInstall(now: Date? = nil) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.startSelfUpdateInstall(now: now)
+            }
+            return
+        }
         objectWillChange.send()
         selfUpdateFeature.startInstalling(now: now ?? nowProvider())
         syncSelfUpdateFeatureProjection()
@@ -180,6 +198,12 @@ public final class TaskCoordinator: ObservableObject {
 
     /// 业务语义：外部 updater 启动失败要回写可见状态，方便用户重试。
     public func failSelfUpdateInstall(message: String, now: Date? = nil) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.failSelfUpdateInstall(message: message, now: now)
+            }
+            return
+        }
         objectWillChange.send()
         selfUpdateFeature.applyInstallFailure(message: message, now: now ?? nowProvider())
         syncSelfUpdateFeatureProjection()
@@ -241,6 +265,12 @@ public final class TaskCoordinator: ObservableObject {
 
     /// 业务语义：snapshot 只更新观测到的状态，不能把缺失线程伪造成完成。
     public func refreshCodexMonitor(_ snapshot: CodexMonitorSnapshot, now: Date? = nil) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshCodexMonitor(snapshot, now: now)
+            }
+            return
+        }
         objectWillChange.send()
         let date = now ?? nowProvider()
         let effects = codexFeature.refreshMonitor(snapshot, now: date)
@@ -250,6 +280,12 @@ public final class TaskCoordinator: ObservableObject {
 
     /// 业务语义：realtime 事件是明确生命周期迁移的入口，terminal review 只能从这里或等价显式状态进入。
     public func applyCodexRealtimeEvent(_ event: CodexRealtimeEvent, now: Date? = nil) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.applyCodexRealtimeEvent(event, now: now)
+            }
+            return
+        }
         objectWillChange.send()
         let date = now ?? nowProvider()
         let effects = codexFeature.applyRealtimeEvent(event, now: date)
@@ -259,6 +295,12 @@ public final class TaskCoordinator: ObservableObject {
 
     /// 业务语义：统一应用单个 Codex 线程生命周期，并只对明确 terminal 迁移产生 review。
     public func updateCodexThread(id: String, title: String, status: CodexThreadStatus, detail: String, now: Date? = nil) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.updateCodexThread(id: id, title: title, status: status, detail: detail, now: now)
+            }
+            return
+        }
         objectWillChange.send()
         let date = now ?? nowProvider()
         let effects = codexFeature.updateThread(id: id, title: title, status: status, detail: detail, now: date)
