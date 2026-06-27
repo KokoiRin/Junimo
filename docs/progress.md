@@ -1,5 +1,131 @@
 # Progress
 
+## 2026-06-27
+
+### Follow-up: Codex Thread Lifecycle
+
+Completed:
+
+- Added a normalized Codex lifecycle layer with `running`, `waiting`, `open`, `completed`, and `failed` states.
+- Preserved app-server `notLoaded`, `idle`, and unknown non-terminal statuses as open work instead of quota-only idle.
+- Removed snapshot-absence completion: a missing active thread no longer creates a completion notification or review item.
+- Added active/open/terminal lifecycle counts to health snapshots and health-script assertions.
+- Updated collapsed status priority so open work shows as `Codex open N` before quota text.
+
+Verified:
+
+```bash
+scripts/test.sh
+scripts/verify.sh
+```
+
+Note: `swift test` is still not a valid project harness because the existing SwiftPM target lacks the required macOS availability configuration for Combine/AppKit APIs.
+
+## 2026-06-27
+
+### Follow-up: Codex Monitor Diagnostics
+
+Completed:
+
+- Added collapsed Codex status priority for active work: pending review first, then `Codex running` / `Codex waiting`, then quota.
+- Added direct acknowledgement from the collapsed Codex status pill and review-count badge, so completed results can be cleared without expanding the island.
+- Removed the obsolete three-second completion-preview prompt from the dock.
+- Added Codex monitor fields to launch health snapshots: usage, thread counts, latest thread, review counts, collapsed status, and refresh time.
+- Rewrote the health snapshot after Codex monitor refreshes or realtime events so diagnostics can show post-launch monitor state.
+- Added health-script assertions that Codex diagnostic fields are present.
+
+Verified:
+
+```bash
+scripts/test.sh
+scripts/build_app.sh
+```
+
+## 2026-06-27
+
+### Follow-up: Codex Completion Cue
+
+Completed:
+
+- Added OpenSpec change `add-codex-completion-cue`.
+- Added `CodexReviewItem.cueText` so completed and failed Codex results expose a short collapsed-island cue.
+- Updated the collapsed right-side status pill to show the pending Codex result cue before quota text.
+- Kept quota text as the default when no Codex review item is pending.
+
+Verified:
+
+```bash
+scripts/test.sh
+scripts/build_app.sh
+openspec validate add-codex-completion-cue --strict
+```
+
+## 2026-06-27
+
+### Follow-up: OpenSpec Archive And Testing Baseline
+
+Completed:
+
+- Archived all completed OpenSpec changes into `openspec/changes/archive/`.
+- Synced long-lived requirements into `openspec/specs/`.
+- Replaced stale active-change validation in `scripts/verify.sh` with strict OpenSpec validation:
+
+```bash
+openspec validate --all --strict
+```
+
+- Added `docs/testing.md` to describe the desired testing pyramid and harness roles.
+- Added a mock-backed app bridge smoke test for `CodexMonitorRefreshBridge` fallback behavior.
+
+Verified:
+
+```bash
+scripts/verify.sh
+```
+
+## 2026-06-27
+
+### Follow-up: Codex Review Attention
+
+Completed:
+
+- Added OpenSpec change `add-codex-review-attention`.
+- Added `CodexReviewItem` state in `TaskCoordinator`.
+- Active-to-completed or active-to-failed Codex thread transitions now create a persistent review item in addition to the transient system notification request.
+- Delivered system notifications no longer clear the review item.
+- The collapsed island shows persistent attention when Codex results need review.
+- The expanded island shows the latest pending Codex result and a compact acknowledgement control.
+
+Verified:
+
+```bash
+scripts/verify.sh
+```
+
+## 2026-06-27
+
+### Follow-up: Codex Realtime Adapter
+
+Completed:
+
+- Added OpenSpec change `add-codex-realtime-adapter`.
+- Added realtime Codex event model and parser support for:
+  - app-server `account/rateLimitsUpdated`
+  - app-server `thread/statusChanged`
+  - app-server terminal turn/thread events
+  - `codex exec --json` `thread.started`, `turn.started`, `turn.completed`, `turn.failed`, and `error`
+- Added `TaskCoordinator.applyCodexRealtimeEvent(...)` so usage/thread/finding events update the existing Codex monitor state.
+- Added process-backed streams:
+  - `ProcessCodexAppServerEventStream`
+  - `ProcessCodexExecEventStream`
+- Updated `CodexMonitorRefreshBridge` to start realtime app-server streaming while preserving periodic snapshot refresh as fallback.
+
+Verified:
+
+```bash
+scripts/verify.sh
+```
+
 ## 2026-06-25
 
 ### Follow-up: Launch Health Snapshot

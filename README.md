@@ -22,7 +22,7 @@ launches the app.
 - Collapsed capsule and hover-expanded console.
 - Invisible L-shaped bottom-right screen-edge hot zone that opens an editable quick note and todo panel after a 0.5s dwell.
 - Mock Codex/Hermes agent status.
-- CLI/app-server-backed Codex monitor shell for quota source, known/cloud threads, and completion alerts.
+- CLI/app-server-backed Codex monitor shell for quota source, known/cloud threads, realtime app-server events, exec JSONL lifecycle events, completion alerts, and persistent review attention.
 - Adapter-mediated action clicks through `TaskCoordinator`.
 - Recent activity recording.
 - Basic accent theme control.
@@ -95,6 +95,13 @@ Run the full available local verification suite:
 scripts/verify.sh
 ```
 
+`scripts/verify.sh` is the Chowa-ready harness for local iterations: it runs the
+direct Swift smoke tests, C++ smoke test, app build, launch health check,
+functional app scenario, OpenSpec validation, and whitespace
+diff checks. For faster red/green loops, use `scripts/test.sh` for Swift-facing
+coordinator and parser behavior and `scripts/test_cpp.sh` for the portable C++23
+core.
+
 Verify app launch health specifically:
 
 ```bash
@@ -132,20 +139,15 @@ pkill -f ".build/app/Junimo.app/Contents/MacOS/Junimo"
 ## Architecture
 
 See [docs/architecture.md](docs/architecture.md) for the Swift/AppKit shell, current Swift coordinator, new C++23 core boundary, and next feature expansion plan.
-See [docs/codex-integration.md](docs/codex-integration.md) for the researched Codex quota, thread, cloud task, and completion-alert integration path.
+See [docs/codex-integration.md](docs/codex-integration.md) for the researched Codex quota, thread, cloud task, realtime, and review-attention integration path.
+See [docs/testing.md](docs/testing.md) for the test pyramid and harness strategy.
 
 ## OpenSpec
 
-The active change is:
+Long-lived requirements live in `openspec/specs/`; archived change designs and tasks live under `openspec/changes/archive/`. Validate the current OpenSpec state with:
 
 ```bash
-openspec validate bootstrap-hover-console --strict
-openspec validate add-cpp23-core-framework --strict
-openspec validate bridge-swift-to-cpp-core --strict
-openspec validate add-command-palette-profiles --strict
-openspec validate add-session-timeline --strict
-openspec validate add-ui-preferences-core --strict
-openspec validate add-launch-health-snapshot --strict
+openspec validate --all --strict
 ```
 
-Design and tasks live under `openspec/changes/bootstrap-hover-console/`.
+New Chowa iteration notes live under `chowa/`.

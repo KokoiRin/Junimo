@@ -6,10 +6,9 @@ struct JunimoSurfaceView: View {
     @ObservedObject var coordinator: TaskCoordinator
     @State private var commandText = ""
     @State private var now = Date()
-    @State private var promptCountdownEndsAt: Date?
-    @State private var promptAttentionActive = false
-    @State private var promptProminentEndsAt: Date?
-    @State private var promptPulse = false
+    @State private var attentionPulse = false
+    @State private var attentionSweep = false
+    @State private var lastAttentionID = ""
 
     var body: some View {
         Group {
@@ -27,7 +26,6 @@ struct JunimoSurfaceView: View {
         .contentShape(Rectangle())
         .onHover { isInside in
             if isInside {
-                clearPromptAttention()
                 coordinator.pointerEntered()
             } else {
                 coordinator.pointerExited()
@@ -36,7 +34,12 @@ struct JunimoSurfaceView: View {
         .onReceive(Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()) { date in
             now = date
             coordinator.advanceTime(to: date)
-            updatePromptState(at: date)
+        }
+        .onAppear {
+            updateCodexAttentionAnimation()
+        }
+        .onChange(of: latestCodexReviewID) {
+            updateCodexAttentionAnimation()
         }
     }
 
@@ -48,52 +51,93 @@ struct JunimoSurfaceView: View {
             Color.clear
                 .frame(width: 208, height: 28)
 
-            statusTriggerIcon
-                .help(runningSummary)
+            quotaTriggerPill
+                .help(collapsedStatusHelp)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.opacity(0.001))
         .contentShape(Rectangle())
         .overlay {
-            collapsedPromptEffect
+            collapsedPromptVisualEffect
+                .allowsHitTesting(false)
+        }
+        .overlay {
+            collapsedReviewBadgeButton
         }
     }
 
-    private var collapsedPromptEffect: some View {
+    private var collapsedPromptVisualEffect: some View {
         ZStack {
-            if promptAttentionActive {
+            if let cue = latestCodexAttentionCue {
                 Capsule()
-                    .stroke(accentColor.opacity(promptIsProminent ? (promptPulse ? 0.88 : 0.35) : 0.20), lineWidth: promptIsProminent ? (promptPulse ? 2.5 : 1.2) : 1)
-                    .frame(width: promptIsProminent ? 360 : 300, height: promptIsProminent ? 28 : 22)
-                    .shadow(color: accentColor.opacity(promptIsProminent ? (promptPulse ? 0.85 : 0.28) : 0.18), radius: promptIsProminent ? (promptPulse ? 18 : 6) : 5)
+                    .fill(attentionColor.opacity(cue.tone == .failed ? 0.16 : 0.11))
+                    .frame(width: 360, height: 28)
+                    .scaleEffect(x: attentionPulse ? 1.015 : 0.985, y: attentionPulse ? 1.10 : 0.92)
+                    .opacity(attentionPulse ? 0.95 : 0.55)
+                    .blur(radius: 0.4)
 
                 Capsule()
-                    .stroke(Color.white.opacity(promptIsProminent ? (promptPulse ? 0.42 : 0.10) : 0.08), lineWidth: 1)
-                    .frame(width: promptIsProminent ? 260 : 210, height: 18)
+                    .stroke(attentionColor.opacity(cue.tone == .failed ? 0.72 : 0.56), lineWidth: 1.4)
+                    .frame(width: 360, height: 28)
+                    .shadow(color: attentionColor.opacity(0.45), radius: attentionPulse ? 10 : 4)
+
+                Capsule()
+                    .stroke(Color.white.opacity(attentionPulse ? 0.22 : 0.10), lineWidth: 1)
+                    .frame(width: 250, height: 18)
+
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0),
+                                Color.white.opacity(cue.tone == .failed ? 0.24 : 0.18),
+                                attentionColor.opacity(cue.tone == .failed ? 0.26 : 0.18),
+                                Color.white.opacity(0)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 74, height: 28)
+                    .offset(x: attentionSweep ? 194 : -194)
+                    .clipShape(Capsule())
 
                 HStack(spacing: 214) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: promptIsProminent ? 13 : 9, weight: .bold))
-                        .foregroundStyle(accentColor)
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: promptIsProminent ? 13 : 9, weight: .bold))
-                        .foregroundStyle(accentColor)
+                    Image(systemName: cue.symbolName)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(attentionColor)
+                        .scaleEffect(attentionPulse ? 1.10 : 0.92)
+                    Image(systemName: cue.symbolName)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(attentionColor)
+                        .scaleEffect(attentionPulse ? 0.92 : 1.10)
                 }
-                .opacity(promptIsProminent ? (promptPulse ? 1 : 0.45) : 0.42)
-            }
-
-            if let remaining = promptCountdownRemaining {
-                Text("\(remaining)")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(accentColor)
-                    .frame(width: 18, height: 18)
-                    .background(Color.black.opacity(0.86), in: Circle())
-                    .overlay(Circle().stroke(accentColor.opacity(0.55), lineWidth: 1))
-                    .offset(x: 164)
+                .opacity(cue.tone == .failed ? 0.72 : 0.58)
             }
         }
-        .allowsHitTesting(false)
+        .animation(.easeInOut(duration: 0.95).repeatForever(autoreverses: true), value: attentionPulse)
+        .animation(.linear(duration: 1.6).repeatForever(autoreverses: false), value: attentionSweep)
+    }
+
+    @ViewBuilder
+    private var collapsedReviewBadgeButton: some View {
+        if let cue = latestCodexAttentionCue {
+            Button {
+                coordinator.acknowledgeLatestCodexReview()
+            } label: {
+                Image(systemName: cue.symbolName)
+                    .font(.system(size: 9, weight: .black))
+                    .foregroundStyle(.black)
+                    .frame(width: 18, height: 18)
+                    .background(attentionColor, in: Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.45), lineWidth: 1))
+                    .scaleEffect(attentionPulse ? 1.12 : 0.96)
+            }
+            .buttonStyle(.plain)
+            .offset(x: 164)
+            .help("Mark latest Codex result reviewed")
+            .animation(.spring(response: 0.34, dampingFraction: 0.64), value: attentionPulse)
+        }
     }
 
     private var launchSprite: some View {
@@ -109,18 +153,31 @@ struct JunimoSurfaceView: View {
         .shadow(color: accentColor.opacity(0.24), radius: 8, x: 0, y: 2)
     }
 
-    private var statusTriggerIcon: some View {
-        ZStack {
-            Circle()
-                .fill(Color.black.opacity(0.82))
-                .frame(width: 24, height: 24)
-                .overlay(Circle().stroke(Color.white.opacity(0.10), lineWidth: 1))
-
-            Image(systemName: coordinator.agents.contains(where: { $0.status == .running }) ? "sparkles" : "moon.stars.fill")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(accentColor)
+    @ViewBuilder
+    private var quotaTriggerPill: some View {
+        if hasCodexReviewAttention {
+            Button {
+                coordinator.acknowledgeLatestCodexReview()
+            } label: {
+                collapsedStatusPillLabel
+            }
+            .buttonStyle(.plain)
+        } else {
+            collapsedStatusPillLabel
         }
-        .shadow(color: .black.opacity(0.28), radius: 8, x: 0, y: 3)
+    }
+
+    private var collapsedStatusPillLabel: some View {
+        Text(collapsedStatusText)
+            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .foregroundStyle(attentionColor)
+            .frame(width: 76, height: 24)
+            .background(Color.black.opacity(0.82), in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 1))
+            .shadow(color: .black.opacity(0.28), radius: 8, x: 0, y: 3)
     }
 
     private var spriteImage: some View {
@@ -299,6 +356,22 @@ struct JunimoSurfaceView: View {
     private var bottomDock: some View {
         HStack(spacing: 12) {
             HStack(spacing: 8) {
+                if let review = coordinator.codexReviewItems.first {
+                    Button {
+                        coordinator.acknowledgeCodexReview(id: review.id)
+                    } label: {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 34, height: 30)
+                    }
+                    .buttonStyle(.plain)
+                    .background(attentionColor.opacity(0.22), in: Circle())
+                    .foregroundStyle(attentionColor)
+                    .help("Mark Codex result reviewed: \(review.title)")
+
+                    dockDivider
+                }
+
                 ForEach(coordinator.actions) { action in
                     dockButton(icon: icon(for: action.kind), title: action.title) {
                         coordinator.performAction(id: action.id)
@@ -335,18 +408,6 @@ struct JunimoSurfaceView: View {
                         .frame(width: 54, alignment: .leading)
                 }
 
-                Button {
-                    startPromptCountdown(at: now)
-                    coordinator.pointerExited()
-                } label: {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 34, height: 30)
-                }
-                .buttonStyle(.plain)
-                .background(promptCountdownEndsAt == nil ? Color.white.opacity(0.08) : accentColor.opacity(0.22), in: Circle())
-                .foregroundStyle(promptCountdownEndsAt == nil ? Color.white.opacity(0.88) : accentColor)
-                .help("Preview task completion alert")
             }
 
             dockDivider
@@ -737,18 +798,23 @@ struct JunimoSurfaceView: View {
     }
 
     private var codexAlertValue: String {
-        coordinator.pendingNotifications.contains { notification in
-            notification.title.localizedCaseInsensitiveContains("Codex")
-        } ? "Ready" : "Quiet"
+        if coordinator.codexReviewItems.isEmpty {
+            return "Quiet"
+        }
+        return "\(coordinator.codexReviewItems.count) review"
     }
 
     private var codexAlertDetail: String {
-        coordinator.pendingNotifications.contains { notification in
-            notification.title.localizedCaseInsensitiveContains("Codex")
-        } ? "completion pending" : "watching completions"
+        guard let review = coordinator.codexReviewItems.first else {
+            return "watching completions"
+        }
+        return "\(review.status.label) · \(review.title)"
     }
 
     private var centerStageIcon: String {
+        if let review = coordinator.codexReviewItems.first {
+            return review.status == .failed ? "exclamationmark.triangle.fill" : "bell.badge.fill"
+        }
         if coordinator.activePomodoro != nil {
             return "timer"
         }
@@ -759,6 +825,9 @@ struct JunimoSurfaceView: View {
     }
 
     private var centerStageTitle: String {
+        if let review = coordinator.codexReviewItems.first {
+            return review.status == .failed ? "Codex needs attention" : "Codex ready"
+        }
         if let session = coordinator.activePomodoro {
             return remainingText(for: session, at: now)
         }
@@ -769,6 +838,9 @@ struct JunimoSurfaceView: View {
     }
 
     private var centerStageSubtitle: String {
+        if let review = coordinator.codexReviewItems.first {
+            return "\(review.title): \(review.detail)"
+        }
         if let session = coordinator.activePomodoro {
             return "Focus until \(session.endsAt.formatted(date: .omitted, time: .shortened))"
         }
@@ -782,18 +854,55 @@ struct JunimoSurfaceView: View {
         color(for: coordinator.theme.accent)
     }
 
-    private var promptCountdownRemaining: Int? {
-        guard let promptCountdownEndsAt else {
-            return nil
-        }
-        return max(1, Int(ceil(promptCountdownEndsAt.timeIntervalSince(now))))
+    /// 业务语义：collapsed 右侧状态位优先提示待处理 Codex 结果，没有结果时才回到配额。
+    private var collapsedStatusText: String {
+        coordinator.codexCollapsedStatusText
     }
 
-    private var promptIsProminent: Bool {
-        guard let promptProminentEndsAt else {
-            return false
+    private var collapsedStatusHelp: String {
+        guard let review = coordinator.codexReviewItems.first else {
+            return codexQuotaDetail
         }
-        return now < promptProminentEndsAt
+        return "Mark Codex result reviewed: \(review.title)"
+    }
+
+    private var hasCodexReviewAttention: Bool {
+        !coordinator.codexReviewItems.isEmpty
+    }
+
+    private var latestCodexReviewID: String {
+        coordinator.codexReviewItems.first?.id ?? ""
+    }
+
+    private var latestCodexAttentionCue: CodexReviewAttentionCue? {
+        coordinator.codexReviewItems.first?.attentionCue
+    }
+
+    private var attentionColor: Color {
+        if coordinator.codexReviewItems.contains(where: { $0.status == .failed }) {
+            return .red
+        }
+        return accentColor
+    }
+
+    /// 业务语义：新的 Codex review attention 进入 collapsed 岛时启动持久动画，清除后复位。
+    private func updateCodexAttentionAnimation() {
+        guard hasCodexReviewAttention else {
+            attentionPulse = false
+            attentionSweep = false
+            lastAttentionID = ""
+            return
+        }
+        guard latestCodexReviewID != lastAttentionID else {
+            return
+        }
+        lastAttentionID = latestCodexReviewID
+        attentionPulse = false
+        attentionSweep = false
+        DispatchQueue.main.async {
+            attentionPulse = true
+            attentionSweep = true
+        }
     }
 
     private var bundledSprite: NSImage? {
@@ -866,40 +975,6 @@ struct JunimoSurfaceView: View {
         let minutes = remaining / 60
         let seconds = remaining % 60
         return String(format: "%02d:%02d", minutes, seconds)
-    }
-
-    private func startPromptCountdown(at date: Date) {
-        promptAttentionActive = false
-        promptProminentEndsAt = nil
-        promptPulse = false
-        promptCountdownEndsAt = date.addingTimeInterval(3)
-    }
-
-    private func updatePromptState(at date: Date) {
-        if let promptCountdownEndsAt, date >= promptCountdownEndsAt {
-            self.promptCountdownEndsAt = nil
-            promptAttentionActive = true
-            promptProminentEndsAt = date.addingTimeInterval(1.8)
-            promptPulse = false
-            DispatchQueue.main.async {
-                withAnimation(.easeInOut(duration: 0.32).repeatCount(5, autoreverses: true)) {
-                    promptPulse = true
-                }
-            }
-            NSSound.beep()
-        }
-
-        if let promptProminentEndsAt, date >= promptProminentEndsAt {
-            self.promptProminentEndsAt = nil
-            promptPulse = false
-        }
-    }
-
-    private func clearPromptAttention() {
-        promptCountdownEndsAt = nil
-        promptAttentionActive = false
-        promptProminentEndsAt = nil
-        promptPulse = false
     }
 
 }

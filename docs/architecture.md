@@ -10,6 +10,111 @@ Junimo has three layers:
 
 Swift/AppKit should remain responsible for native desktop behavior. C++ should own portable policy and state transitions.
 
+## Target Module Structure
+
+Junimo should grow from the current three-layer prototype into a set of deeper
+modules with explicit state owners and test seams:
+
+1. `Junimo` app shell: owns `NSApplication`, panels, menu bar status item,
+   SwiftUI hosting, native notification delivery, and quit/show commands.
+2. Runtime composition: constructs feature stores, adapters, schedulers, and
+   diagnostics providers; owns startup order and teardown. `JunimoRuntime` is
+   the current app-layer composition point for `TaskCoordinator`, reminder
+   delivery, Codex monitoring, and launch health diagnostics.
+3. Feature stores: own product state, reduce user intents and adapter events,
+   and expose public snapshots. Initial feature boundaries are Console, Codex,
+   Pomodoro, Corner Note, Preferences, and Sessions. Console, Codex, Pomodoro,
+   Corner Note, and Preferences already have explicit Swift feature owners
+   behind the coordinator compatibility facade.
+4. Adapters: own process, filesystem, OS, notification, and protocol I/O. Codex
+   app-server, Codex CLI/exec streams, notification delivery, and persistence
+   belong here.
+5. Domain policy: pure reducers, ordering rules, value objects, parsers, and
+   portable transitions. Stable portable policies can move into `Core`; moving
+   native or fast-changing protocol behavior into C++ is not required.
+6. Shared effect stores: own cross-feature pending effects such as system
+   notification requests without owning feature-specific decisions.
+7. Diagnostics: composes public feature snapshots into launch health and harness
+   evidence without becoming another state authority.
+
+Dependency direction should stay simple:
+
+```text
+Junimo App Shell
+        ↓
+Runtime Composition
+        ↓
+Feature Stores
+        ↓
+Domain Policy
+
+Runtime Composition → Adapters
+Adapters → typed Events / Results → Feature Stores
+Diagnostics → public Feature Snapshots
+```
+
+The practical rule is: views dispatch intents and render state; adapters do I/O
+and emit typed observations; reducers decide what observations mean for product
+state.
+
+## Runtime Composition
+
+`Sources/Junimo/JunimoRuntime.swift` is the app-layer owner for startup wiring
+that is not itself AppKit surface code:
+
+1. It exposes the shared `TaskCoordinator` used by panel controllers.
+2. It starts `ReminderDeliveryBridge` so pending notification requests from
+   feature stores flow to platform notification delivery.
+3. It starts `CodexMonitorRefreshBridge` with injectable provider/stream seams
+   so snapshot fallback and realtime findings enter the coordinator through the
+   same typed monitor sink.
+4. It owns launch health reporting and the functional health scenario entry.
+
+`AppDelegate` should remain responsible for `NSApplication`, panels, status
+item menu commands, and panel diagnostics. New app-level bridge wiring should
+prefer `JunimoRuntime`; new UI surface wiring should remain in the app shell.
+
+## State Ownership Rules
+
+- A feature has exactly one mutable business-state owner.
+- Derived UI text is computed by the owning feature or its public projection, not
+  independently by multiple views.
+- External process and protocol failures are adapter outputs, not direct UI
+  mutations.
+- Launch health and Chowa harness checks read public snapshots from feature
+  stores.
+- `TaskCoordinator` remains a temporary compatibility facade while existing
+  SwiftUI views migrate. New feature rules should be delegated to feature
+  modules rather than reimplemented in the coordinator.
+
+## Codex Walking Skeleton
+
+Codex is the first feature extraction because it already combines quota,
+thread lifecycle, review attention, collapsed status priority, app-server
+snapshots, realtime events, exec JSONL, notifications, and launch diagnostics.
+
+Current slice:
+
+1. `CodexFeature` owns Codex monitor state, review attention, collapsed status
+   priority, agent projection, and terminal notification/activity effects.
+2. `TaskCoordinator` remains the compatibility facade for existing SwiftUI
+   views, but Codex state mutations delegate to `CodexFeature`.
+3. Launch health reads `CodexFeatureSnapshot` instead of reconstructing Codex
+   diagnostics from scattered coordinator fields.
+4. Direct smoke tests exercise the feature boundary and the compatibility
+   coordinator path.
+5. Codex adapter boundaries are split by responsibility:
+   `CodexAdapterContracts`, `CodexProcessRunner`, `CodexAppServerClient`,
+   `CodexRealtimeStreams`, `CodexStatusParser`, `CodexRealtimeEventParser`, and
+   `CodexMonitorService`.
+
+Remaining Codex extraction work:
+
+1. Move expanded UI Codex projections behind feature snapshots as the SwiftUI
+   surface migrates away from the compatibility coordinator.
+2. Revisit a generic adapter registry only after another real adapter shares the
+   same lifecycle and action contract.
+
 ## Launch Diagnostics
 
 The app writes a local health snapshot at `/tmp/junimo-health.json` after the AppKit panel is shown. This is local-only diagnostic evidence for automated checks and contains process, panel, and C++ core-backed coordinator state. It is not telemetry and is not uploaded.
@@ -22,14 +127,20 @@ For real menu bar presence, Junimo also installs an `NSStatusItem` with Show and
 
 ## Next Feature Scale
 
-The tool should grow through replaceable modules:
+The tool should grow through feature modules and adapters:
 
-- Adapter registry: Codex, Hermes, terminal commands, project scripts, and future automation providers register behind a common action interface.
+- Codex feature: reliable lifecycle, quota, review attention, animated attention cues, and diagnostics through one state owner.
+- Corner Note feature: expanded state, note text projection, todo projection,
+  and `CornerNoteCore` persistence mutations through one state owner.
+- Notification outbox: pending system notification requests from Codex,
+  Pomodoro, and future features through one queue owner; app shell delivery
+  remains in `ReminderDelivery`.
+- Pomodoro feature: focus/break modes, completion actions, and project/session association.
 - Project profiles: per-repository shortcuts, recent tasks, preferred agents, and safe working directories.
-- Command palette: searchable actions that can be triggered from the expanded console.
+- Command palette: searchable actions that can be triggered from the expanded console and routed as intents.
 - Session timeline: richer activity entries with status, duration, adapter, and failure reason.
-- Pomodoro modes: focus/break presets, completion actions, and optional project/session association.
 - Theme profiles: compact density, accent, material strength, and notch offset.
+- Adapter registry: only after at least two real adapters share the same stable contract.
 
 ## Swift To C++ Bridge
 

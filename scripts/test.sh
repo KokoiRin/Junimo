@@ -36,3 +36,20 @@ swiftc \
 
 JUNIMO_CORNER_NOTE_CACHE_PATH="$CORNER_NOTE_CACHE_PATH" \
 "$BUILD_DIR/JunimoCoreSmokeTests"
+
+swiftc \
+  -I "$BUILD_DIR" \
+  -L "$BUILD_DIR" \
+  -lJunimoCore \
+  -ljunimo_core_bridge \
+  "$ROOT_DIR"/Sources/Junimo/ReminderDelivery.swift \
+  "$ROOT_DIR"/Sources/Junimo/CodexMonitorRefreshBridge.swift \
+  "$ROOT_DIR"/Sources/Junimo/LaunchHealthReporter.swift \
+  "$ROOT_DIR"/Sources/Junimo/JunimoRuntime.swift \
+  "$ROOT_DIR"/Tests/JunimoAppDirectTests/main.swift \
+  -o "$BUILD_DIR/JunimoAppSmokeTests" \
+  -Xlinker -rpath \
+  -Xlinker "$BUILD_DIR"
+
+JUNIMO_CORNER_NOTE_CACHE_PATH="$CORNER_NOTE_CACHE_PATH" \
+"$BUILD_DIR/JunimoAppSmokeTests"
