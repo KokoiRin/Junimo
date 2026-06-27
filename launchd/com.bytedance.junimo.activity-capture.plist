@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.bytedance.junimo.activity-capture</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>__CAPTURE_SCRIPT__</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ACTIVITY_CAPTURE_DIR</key>
+    <string>__CAPTURE_DIR__</string>
+    <key>ACTIVITY_CAPTURE_START_DATE</key>
+    <string>2026-06-29</string>
+    <key>ACTIVITY_CAPTURE_MAX_WIDTH</key>
+    <string>960</string>
+    <key>ACTIVITY_CAPTURE_JPEG_QUALITY</key>
+    <string>35</string>
+    <key>ACTIVITY_CAPTURE_WINDOW_START</key>
+    <string>1000</string>
+    <key>ACTIVITY_CAPTURE_WINDOW_END</key>
+    <string>2200</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>60</integer>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>__OUT_LOG__</string>
+
+  <key>StandardErrorPath</key>
+  <string>__ERR_LOG__</string>
+</dict>
+</plist>
