@@ -64,6 +64,42 @@ final class RecordingReminderAdapter: ReminderDelivering {
     }
 }
 
+final class FakeReleaseChecker: ReleaseChecking {
+    var result: SelfUpdateCheckResult
+    private(set) var checkCount = 0
+    var delayCompletion = false
+    private var pendingCompletion: ((SelfUpdateCheckResult) -> Void)?
+
+    init(result: SelfUpdateCheckResult) {
+        self.result = result
+    }
+
+    /// 业务语义：fake checker 让测试控制 release 检查成功、失败和延迟回调。
+    func checkLatestRelease(completion: @escaping (SelfUpdateCheckResult) -> Void) {
+        checkCount += 1
+        if delayCompletion {
+            pendingCompletion = completion
+        } else {
+            completion(result)
+        }
+    }
+
+    /// 业务语义：延迟完成用于验证 service stop 后不会继续污染 coordinator 状态。
+    func completePending() {
+        pendingCompletion?(result)
+        pendingCompletion = nil
+    }
+}
+
+final class RecordingUpdateInstaller: ExternalUpdateInstalling {
+    private(set) var installDirectories: [String] = []
+
+    /// 业务语义：fake installer 只记录用户确认后的安装意图，不触发真实文件替换。
+    func installLatest(from installDirectory: String) throws {
+        installDirectories.append(installDirectory)
+    }
+}
+
 final class FakeMonitorSink: CodexMonitorEventSink {
     private(set) var snapshots: [CodexMonitorSnapshot] = []
     private(set) var events: [CodexRealtimeEvent] = []
@@ -140,6 +176,38 @@ expect(
     "Monitor service should deliver realtime findings through typed sink"
 )
 
+let updateCoordinator = TaskCoordinator(currentVersion: ReleaseVersion("0.1.4")!, now: now)
+let updateChecker = FakeReleaseChecker(
+    result: .success(ReleaseInfo(version: ReleaseVersion("0.1.5")!, assetName: "Junimo-macos-arm64.zip"))
+)
+let updateService = SoftwareUpdateService(coordinator: updateCoordinator, checker: updateChecker, checksOnStart: false, nowProvider: { now })
+updateService.start()
+updateService.checkNow(reason: .manual)
+expect(updateChecker.checkCount == 1, "Manual update check should call release checker")
+expect(updateCoordinator.selfUpdateSnapshot.state == .updateAvailable, "Manual update check should expose available update")
+updateService.stop()
+
+let failedUpdateCoordinator = TaskCoordinator(currentVersion: ReleaseVersion("0.1.4")!, now: now)
+let failedChecker = FakeReleaseChecker(result: .failure("release metadata unavailable"))
+let failedService = SoftwareUpdateService(coordinator: failedUpdateCoordinator, checker: failedChecker, checksOnStart: false, nowProvider: { now })
+failedService.start()
+failedService.checkNow(reason: .manual)
+expect(failedUpdateCoordinator.selfUpdateSnapshot.state == .checkFailed, "Failed update check should update visible state")
+expect(failedUpdateCoordinator.selfUpdateSnapshot.message == "release metadata unavailable", "Failed update check should preserve failure message")
+failedService.stop()
+
+let stoppedUpdateCoordinator = TaskCoordinator(currentVersion: ReleaseVersion("0.1.4")!, now: now)
+let delayedChecker = FakeReleaseChecker(
+    result: .success(ReleaseInfo(version: ReleaseVersion("0.1.5")!, assetName: "Junimo-macos-arm64.zip"))
+)
+delayedChecker.delayCompletion = true
+let stoppedService = SoftwareUpdateService(coordinator: stoppedUpdateCoordinator, checker: delayedChecker, checksOnStart: false, nowProvider: { now })
+stoppedService.start()
+stoppedService.checkNow(reason: .manual)
+stoppedService.stop()
+delayedChecker.completePending()
+expect(stoppedUpdateCoordinator.selfUpdateSnapshot.state == .checking, "Stopped update service should not apply delayed checker results")
+
 let coordinator = TaskCoordinator(now: now)
 let provider = FakeSnapshotProvider(snapshot: snapshot)
 let stream = FailingRealtimeStream()
@@ -170,24 +238,34 @@ expect(
     "Realtime stream failure should be exposed as a degraded finding"
 )
 
-let runtimeCoordinator = TaskCoordinator(now: now)
+let runtimeCoordinator = TaskCoordinator(currentVersion: ReleaseVersion("0.1.4")!, now: now)
 let runtimeProvider = FakeSnapshotProvider(snapshot: snapshot)
 let runtimeStream = FailingRealtimeStream()
 let runtimeRecorder = MonitorUpdateRecorder()
 let runtimeReminderAdapter = RecordingReminderAdapter()
+let runtimeReleaseChecker = FakeReleaseChecker(
+    result: .success(ReleaseInfo(version: ReleaseVersion("0.1.5")!, assetName: "Junimo-macos-arm64.zip"))
+)
+let runtimeInstaller = RecordingUpdateInstaller()
 let runtime = JunimoRuntime(
     coordinator: runtimeCoordinator,
     reminderAdapter: runtimeReminderAdapter,
     codexProvider: runtimeProvider,
     codexRealtimeStream: runtimeStream,
-    codexMonitorInterval: 60
+    codexMonitorInterval: 60,
+    releaseChecker: runtimeReleaseChecker,
+    updateInstaller: runtimeInstaller,
+    softwareUpdateChecksOnStart: true,
+    installDirectoryProvider: { "/Applications" }
 )
 
 runtime.start(onCodexMonitorUpdated: runtimeRecorder.record)
 waitUntil(Date().addingTimeInterval(2)) {
     runtime.coordinator.codexMonitor.usage.source == "fake-provider"
         && runtime.coordinator.codexMonitor.findings.contains { $0.id == "app-server-realtime" }
+        && runtime.coordinator.selfUpdateSnapshot.state == .updateAvailable
 }
+runtime.installAvailableUpdate()
 runtime.coordinator.startPomodoro(duration: 1, now: now)
 runtime.coordinator.advanceTime(to: now.addingTimeInterval(1))
 waitUntil(Date().addingTimeInterval(2)) {
@@ -202,6 +280,8 @@ expect(runtimeProvider.loadCount == 1, "Runtime should request an immediate Code
 expect(runtimeRecorder.count >= 1, "Runtime should report Codex monitor updates")
 expect(runtimeStream.started, "Runtime should start realtime Codex stream")
 expect(runtimeStream.stopped, "Runtime should stop realtime Codex stream")
+expect(runtimeReleaseChecker.checkCount == 1, "Runtime should start one launch-time update check")
+expect(runtimeInstaller.installDirectories == ["/Applications"], "Runtime should install available update in current install directory")
 let realtimeFindingDelivered = runtime.coordinator.codexMonitor.findings.contains {
     $0.id == "app-server-realtime" && $0.status == CodexCapabilityStatus.degraded
 }
@@ -214,5 +294,22 @@ expect(runtime.coordinator.pendingNotifications.isEmpty, "Runtime reminder deliv
 expect(runtime.coordinator.preferences.density == ConsoleDensity.compact, "Runtime health scenario should exercise compact density")
 expect(runtime.coordinator.isCornerNoteExpanded, "Runtime health scenario should exercise Corner Note expansion")
 expect(runtime.coordinator.cornerNoteText == "Health scenario note", "Runtime health scenario should write Corner Note text")
+
+let stoppedRuntimeCoordinator = TaskCoordinator(currentVersion: ReleaseVersion("0.1.4")!, now: now)
+let stoppedRuntimeChecker = FakeReleaseChecker(
+    result: .success(ReleaseInfo(version: ReleaseVersion("0.1.5")!, assetName: "Junimo-macos-arm64.zip"))
+)
+stoppedRuntimeChecker.delayCompletion = true
+let stoppedRuntime = JunimoRuntime(
+    coordinator: stoppedRuntimeCoordinator,
+    reminderAdapter: RecordingReminderAdapter(),
+    codexMonitorEnabled: false,
+    releaseChecker: stoppedRuntimeChecker,
+    softwareUpdateChecksOnStart: true
+)
+stoppedRuntime.start()
+stoppedRuntime.stop()
+stoppedRuntimeChecker.completePending()
+expect(stoppedRuntime.coordinator.selfUpdateSnapshot.state == .checking, "Runtime stop should prevent delayed update check mutation")
 
 print("Junimo app bridge smoke tests passed")
