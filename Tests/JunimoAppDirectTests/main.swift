@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import JunimoCore
 
@@ -68,6 +69,7 @@ final class FakeReleaseChecker: ReleaseChecking {
     var result: SelfUpdateCheckResult
     private(set) var checkCount = 0
     var delayCompletion = false
+    var completesOnBackgroundQueue = false
     private var pendingCompletion: ((SelfUpdateCheckResult) -> Void)?
 
     init(result: SelfUpdateCheckResult) {
@@ -79,6 +81,11 @@ final class FakeReleaseChecker: ReleaseChecking {
         checkCount += 1
         if delayCompletion {
             pendingCompletion = completion
+        } else if completesOnBackgroundQueue {
+            let result = result
+            DispatchQueue.global(qos: .utility).async {
+                completion(result)
+            }
         } else {
             completion(result)
         }
@@ -183,6 +190,9 @@ let updateChecker = FakeReleaseChecker(
 let updateService = SoftwareUpdateService(coordinator: updateCoordinator, checker: updateChecker, checksOnStart: false, nowProvider: { now })
 updateService.start()
 updateService.checkNow(reason: .manual)
+waitUntil(Date().addingTimeInterval(2)) {
+    updateCoordinator.selfUpdateSnapshot.state == .updateAvailable
+}
 expect(updateChecker.checkCount == 1, "Manual update check should call release checker")
 expect(updateCoordinator.selfUpdateSnapshot.state == .updateAvailable, "Manual update check should expose available update")
 updateService.stop()
@@ -192,9 +202,33 @@ let failedChecker = FakeReleaseChecker(result: .failure("release metadata unavai
 let failedService = SoftwareUpdateService(coordinator: failedUpdateCoordinator, checker: failedChecker, checksOnStart: false, nowProvider: { now })
 failedService.start()
 failedService.checkNow(reason: .manual)
+waitUntil(Date().addingTimeInterval(2)) {
+    failedUpdateCoordinator.selfUpdateSnapshot.state == .checkFailed
+}
 expect(failedUpdateCoordinator.selfUpdateSnapshot.state == .checkFailed, "Failed update check should update visible state")
 expect(failedUpdateCoordinator.selfUpdateSnapshot.message == "release metadata unavailable", "Failed update check should preserve failure message")
 failedService.stop()
+
+let backgroundUpdateCoordinator = TaskCoordinator(currentVersion: ReleaseVersion("0.1.4")!, now: now)
+let backgroundChecker = FakeReleaseChecker(
+    result: .success(ReleaseInfo(version: ReleaseVersion("0.1.5")!, assetName: "Junimo-macos-arm64.zip"))
+)
+backgroundChecker.completesOnBackgroundQueue = true
+var backgroundUpdatePublishedOffMain = false
+let backgroundUpdateCancellable = backgroundUpdateCoordinator.objectWillChange.sink {
+    if !Thread.isMainThread {
+        backgroundUpdatePublishedOffMain = true
+    }
+}
+let backgroundUpdateService = SoftwareUpdateService(coordinator: backgroundUpdateCoordinator, checker: backgroundChecker, checksOnStart: false, nowProvider: { now })
+backgroundUpdateService.start()
+backgroundUpdateService.checkNow(reason: .manual)
+waitUntil(Date().addingTimeInterval(2)) {
+    backgroundUpdateCoordinator.selfUpdateSnapshot.state == .updateAvailable
+}
+backgroundUpdateService.stop()
+expect(!backgroundUpdatePublishedOffMain, "Background release checks must publish coordinator changes on the main thread")
+_ = backgroundUpdateCancellable
 
 let stoppedUpdateCoordinator = TaskCoordinator(currentVersion: ReleaseVersion("0.1.4")!, now: now)
 let delayedChecker = FakeReleaseChecker(
@@ -237,6 +271,22 @@ expect(
     coordinator.codexMonitor.findings.contains { $0.id == "app-server-realtime" && $0.status == .degraded },
     "Realtime stream failure should be exposed as a degraded finding"
 )
+
+let backgroundCodexCoordinator = TaskCoordinator(now: now)
+var backgroundCodexPublishedOffMain = false
+let backgroundCodexCancellable = backgroundCodexCoordinator.objectWillChange.sink {
+    if !Thread.isMainThread {
+        backgroundCodexPublishedOffMain = true
+    }
+}
+DispatchQueue.global(qos: .utility).async {
+    backgroundCodexCoordinator.refreshCodexMonitor(snapshot)
+}
+waitUntil(Date().addingTimeInterval(2)) {
+    backgroundCodexCoordinator.codexMonitor.usage.source == "fake-provider"
+}
+expect(!backgroundCodexPublishedOffMain, "Background Codex refreshes must publish coordinator changes on the main thread")
+_ = backgroundCodexCancellable
 
 let runtimeCoordinator = TaskCoordinator(currentVersion: ReleaseVersion("0.1.4")!, now: now)
 let runtimeProvider = FakeSnapshotProvider(snapshot: snapshot)
