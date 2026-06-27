@@ -1,0 +1,6 @@
+- [x] 1. 增加 core direct smoke：Codex action 不再伪造 running thread，collapsed 状态仍来自 adapter/quota。
+- [x] 2. 增加 core direct smoke：completed / failed review item 暴露可测试 attention cue，ack 行为保持持久可清除。
+- [x] 3. 实现 `CodexReviewAttentionCue` / `CodexReviewItem.attentionCue`，并调整 Codex action effect 消费规则。
+- [x] 4. 强化 collapsed island Codex review attention 动画和确认入口。
+- [x] 5. 更新 `chowa/opportunities.md`、`docs/codex-integration.md`、`docs/architecture.md` 中的 Codex 启动器残留表述。
+- [x] 6. 运行 `scripts/test.sh`、`scripts/build.sh`、`scripts/verify_functional_scenario.sh`、`openspec validate --all --strict`、`git diff --check`，归档完成的 change。
