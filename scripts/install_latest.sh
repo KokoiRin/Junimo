@@ -10,7 +10,7 @@ if [[ "$(uname -m)" != "arm64" ]]; then
   exit 1
 fi
 
-for tool in curl ditto find open; do
+for tool in curl ditto find open pgrep; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "Missing required tool: $tool" >&2
     exit 1
@@ -62,4 +62,16 @@ if [[ "${JUNIMO_NO_OPEN:-0}" == "1" ]]; then
 fi
 
 open "$DEST"
-echo "Junimo launched."
+VERIFY_SECONDS="${JUNIMO_LAUNCH_VERIFY_SECONDS:-8}"
+EXECUTABLE_PATH="$DEST/Contents/MacOS/Junimo"
+for _ in $(seq 1 "$VERIFY_SECONDS"); do
+  if pgrep -f "$EXECUTABLE_PATH" >/dev/null; then
+    echo "Junimo launched and stayed running."
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "Junimo was installed to $DEST but did not stay running after launch." >&2
+echo "Health file, if written: ${JUNIMO_HEALTH_PATH:-/tmp/junimo-health.json}" >&2
+exit 1
