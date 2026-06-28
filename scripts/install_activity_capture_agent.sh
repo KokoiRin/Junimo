@@ -8,6 +8,7 @@ SOURCE_PLIST="$REPO_ROOT/launchd/$LABEL.plist"
 SOURCE_CAPTURE_SCRIPT="$REPO_ROOT/scripts/capture_activity_snapshot.sh"
 SUPPORT_DIR="$HOME/Library/Application Support/Junimo/ActivityCapture"
 CAPTURE_DIR="$HOME/Documents/JunimoActivityCaptures"
+START_DATE="${ACTIVITY_CAPTURE_START_DATE:-$(date +%Y-%m-%d)}"
 TARGET_DIR="$HOME/Library/LaunchAgents"
 TARGET_PLIST="$TARGET_DIR/$LABEL.plist"
 INSTALLED_CAPTURE_SCRIPT="$SUPPORT_DIR/capture_activity_snapshot.sh"
@@ -21,6 +22,7 @@ escape_sed_replacement() {
 
 escaped_capture_script="$(escape_sed_replacement "$INSTALLED_CAPTURE_SCRIPT")"
 escaped_capture_dir="$(escape_sed_replacement "$CAPTURE_DIR")"
+escaped_start_date="$(escape_sed_replacement "$START_DATE")"
 escaped_out_log="$(escape_sed_replacement "$OUT_LOG")"
 escaped_err_log="$(escape_sed_replacement "$ERR_LOG")"
 
@@ -34,6 +36,7 @@ chmod +x "$INSTALLED_CAPTURE_SCRIPT"
 sed \
   -e "s#__CAPTURE_SCRIPT__#$escaped_capture_script#g" \
   -e "s#__CAPTURE_DIR__#$escaped_capture_dir#g" \
+  -e "s#__START_DATE__#$escaped_start_date#g" \
   -e "s#__OUT_LOG__#$escaped_out_log#g" \
   -e "s#__ERR_LOG__#$escaped_err_log#g" \
   "$SOURCE_PLIST" > "$TARGET_PLIST"
@@ -44,3 +47,4 @@ launchctl enable "gui/$UID/$LABEL"
 
 launchctl print "gui/$UID/$LABEL" >/dev/null
 printf 'Installed %s\n' "$TARGET_PLIST"
+printf 'Captures start on %s in %s\n' "$START_DATE" "$CAPTURE_DIR"

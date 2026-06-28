@@ -17,7 +17,7 @@
     <key>ACTIVITY_CAPTURE_DIR</key>
     <string>__CAPTURE_DIR__</string>
     <key>ACTIVITY_CAPTURE_START_DATE</key>
-    <string>2026-06-29</string>
+    <string>__START_DATE__</string>
     <key>ACTIVITY_CAPTURE_MAX_WIDTH</key>
     <string>960</string>
     <key>ACTIVITY_CAPTURE_JPEG_QUALITY</key>
@@ -32,7 +32,7 @@
   <integer>60</integer>
 
   <key>RunAtLoad</key>
-  <false/>
+  <true/>
 
   <key>StandardOutPath</key>
   <string>__OUT_LOG__</string>

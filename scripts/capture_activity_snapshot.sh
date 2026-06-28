@@ -51,8 +51,10 @@ height="$(sips -g pixelHeight "$out_file" | awk '/pixelHeight:/ { print $2 }')"
 bytes="$(stat -f%z "$out_file")"
 
 if [[ ! -f "$index_file" ]]; then
-  printf 'timestamp,file,width,height,bytes\n' > "$index_file"
+  printf 'timestamp,file,width,height,bytes\n' > "$index_file" 2>/dev/null || true
 fi
 
-printf '%s,%s,%s,%s,%s\n' "$timestamp" "$(basename "$out_file")" "$width" "$height" "$bytes" >> "$index_file"
+if ! printf '%s,%s,%s,%s,%s\n' "$timestamp" "$(basename "$out_file")" "$width" "$height" "$bytes" >> "$index_file" 2>/dev/null; then
+  printf 'could not update capture index: %s\n' "$index_file" >&2
+fi
 printf '%s\n' "$out_file"

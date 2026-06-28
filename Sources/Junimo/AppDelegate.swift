@@ -5,6 +5,7 @@ import JunimoCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let automaticTerminationReason = "Junimo runs as a menu bar utility."
     private var runtime: JunimoRuntime?
+    private var lifecycleWindow: NSWindow?
     private var panelController: NotchPanelController?
     private var cornerNotePanelController: CornerNotePanelController?
     private var statusItem: NSStatusItem?
@@ -14,7 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 业务语义：AppDelegate 只组装 AppKit surface，把产品 runtime wiring 交给 JunimoRuntime。
     func applicationDidFinishLaunching(_ notification: Notification) {
         ProcessInfo.processInfo.disableAutomaticTermination(automaticTerminationReason)
+        ProcessInfo.processInfo.disableSuddenTermination()
         NSApp.setActivationPolicy(.accessory)
+        installLifecycleAnchorWindow()
 
         let runtime = JunimoRuntime(
             codexMonitorEnabled: ProcessInfo.processInfo.environment["JUNIMO_DISABLE_CODEX_MONITOR"] != "1"
@@ -56,7 +59,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 业务语义：应用退出时通过 runtime 停止后台 monitor，避免 AppKit 层散落清理逻辑。
     func applicationWillTerminate(_ notification: Notification) {
         runtime?.stop()
+        lifecycleWindow?.close()
+        lifecycleWindow = nil
         ProcessInfo.processInfo.enableAutomaticTermination(automaticTerminationReason)
+        ProcessInfo.processInfo.enableSuddenTermination()
     }
 
     /// 业务语义：状态栏 Show 命令只恢复 app shell 面板，不触碰产品 runtime wiring。
@@ -98,6 +104,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.menu = menu
         statusItem = item
         refreshStatusMenu()
+    }
+
+    /// 业务语义：LSUIElement 菜单栏应用也需要一个 AppKit 生命周期锚点，避免无普通窗口时被 automatic termination 回收。
+    private func installLifecycleAnchorWindow() {
+        let window = NSWindow(
+            contentRect: NSRect(x: -10_000, y: -10_000, width: 1, height: 1),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.alphaValue = 0
+        window.isOpaque = false
+        window.hasShadow = false
+        window.ignoresMouseEvents = true
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        window.orderFrontRegardless()
+        lifecycleWindow = window
     }
 
     /// 业务语义：菜单标题是 self-update 快照的派生投影，不在 AppDelegate 内重新判断版本。
