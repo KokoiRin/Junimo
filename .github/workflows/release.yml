@@ -30,6 +30,8 @@ jobs:
         with:
           draft: false
           prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
           files: |
             .build/dist/Junimo-*.zip
             .build/dist/Junimo-*.pkg
