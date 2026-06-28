@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 enum LaunchLifecycleDiagnostics {
@@ -53,14 +54,48 @@ enum LaunchLifecycleDiagnostics {
 
 enum AppLifecycleRetainer {
     static let reason = "Junimo runs as a persistent menu bar utility."
+    private static var activity: NSObjectProtocol?
     private static var retained = false
+    private static var signalSources: [DispatchSourceSignal] = []
 
     /// 业务语义：termination 抑制必须早于 NSApplication 启动流程，避免 AppKit 在无普通窗口时安排自动回收。
     static func retainBeforeAppRun() {
         guard !retained else { return }
+        activity = ProcessInfo.processInfo.beginActivity(
+            options: [.automaticTerminationDisabled, .suddenTerminationDisabled],
+            reason: reason
+        )
         ProcessInfo.processInfo.disableAutomaticTermination(reason)
         ProcessInfo.processInfo.disableSuddenTermination()
         retained = true
-        LaunchLifecycleDiagnostics.record("process-retained-before-app-run")
+        LaunchLifecycleDiagnostics.record("process-retained-before-app-run", fields: [
+            "activity": activity == nil ? "missing" : "held"
+        ])
+        installExitDiagnostics()
+    }
+
+    /// 业务语义：进程级退出钩子用于区分 AppKit termination、外部 signal、自然退出，避免远端机器只能靠系统日志猜。
+    private static func installExitDiagnostics() {
+        atexit {
+            LaunchLifecycleDiagnostics.record("process-atexit")
+        }
+
+        for signalNumber in [SIGTERM, SIGHUP, SIGINT, SIGQUIT] {
+            signal(signalNumber, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
+            source.setEventHandler {
+                LaunchLifecycleDiagnostics.record("process-signal", fields: [
+                    "signal": "\(signalNumber)"
+                ])
+                exit(128 + signalNumber)
+            }
+            source.resume()
+            signalSources.append(source)
+        }
+    }
+
+    /// 业务语义：诊断日志需要能说明进程层保活 token 是否仍然存在。
+    static var hasActivityToken: Bool {
+        activity != nil
     }
 }

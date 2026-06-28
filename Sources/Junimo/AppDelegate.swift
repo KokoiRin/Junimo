@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var statusMenuUpdateItem: NSMenuItem?
     private var coordinatorCancellable: AnyCancellable?
+    private var lifecycleDiagnosticsTimers: [Timer] = []
     private var allowsTermination = false
 
     /// 业务语义：生命周期锚点尽早进入 AppKit 启动阶段，先于业务 runtime 和 panel 组装。
@@ -41,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LaunchLifecycleDiagnostics.record("corner-panel-shown")
         installStatusItem()
         LaunchLifecycleDiagnostics.record("status-item-installed")
+        recordWindowSnapshot(label: "after-status-item")
+        scheduleLifecycleDiagnostics()
         coordinatorCancellable = coordinator.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { [weak self] in
                 self?.refreshStatusMenu()
@@ -65,7 +68,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 业务语义：Junimo 是菜单栏辅助工具，关闭窗口不等于退出应用。
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        false
+        LaunchLifecycleDiagnostics.record("application-should-terminate-after-last-window-closed")
+        return false
     }
 
     /// 业务语义：只有用户主动退出或更新安装才能结束常驻进程，AppKit automatic termination 不能回收菜单栏工具。
@@ -79,6 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 业务语义：应用退出时通过 runtime 停止后台 monitor，避免 AppKit 层散落清理逻辑。
     func applicationWillTerminate(_ notification: Notification) {
         LaunchLifecycleDiagnostics.record("application-will-terminate")
+        recordWindowSnapshot(label: "will-terminate")
+        lifecycleDiagnosticsTimers.forEach { $0.invalidate() }
+        lifecycleDiagnosticsTimers = []
         runtime?.stop()
         lifecycleWindow?.close()
         lifecycleWindow = nil
@@ -132,15 +139,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 业务语义：LSUIElement 菜单栏应用也需要一个 AppKit 生命周期锚点，避免无普通窗口时被 automatic termination 回收。
     private func installLifecycleAnchorWindow() {
         guard lifecycleWindow == nil else { return }
+        let frame = lifecycleAnchorFrame()
         let window = NSWindow(
-            contentRect: NSRect(x: -10_000, y: -10_000, width: 64, height: 64),
-            styleMask: [.titled],
+            contentRect: frame,
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        window.alphaValue = 0
+        window.alphaValue = 0.02
         window.isOpaque = false
         window.hasShadow = false
+        window.backgroundColor = .clear
         window.ignoresMouseEvents = true
         window.isReleasedWhenClosed = false
         window.title = "Junimo Lifecycle"
@@ -149,7 +158,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lifecycleWindow = window
         LaunchLifecycleDiagnostics.record("lifecycle-window-installed", fields: [
             "visible": "\(window.isVisible)",
+            "alpha": "\(window.alphaValue)",
+            "frame": "\(Int(window.frame.origin.x)),\(Int(window.frame.origin.y)),\(Int(window.frame.width)),\(Int(window.frame.height))",
             "styleMask": "\(window.styleMask.rawValue)"
+        ])
+    }
+
+    /// 业务语义：生命周期锚点必须位于屏幕内且非透明，否则 AppKit 可能仍判断为没有 open window。
+    private func lifecycleAnchorFrame() -> NSRect {
+        let screenFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 10, height: 10)
+        return NSRect(x: screenFrame.minX + 1, y: screenFrame.minY + 1, width: 2, height: 2)
+    }
+
+    /// 业务语义：启动后定点记录窗口和保活状态，用于定位 AppKit 为何仍认为没有窗口可防止 automatic termination。
+    private func scheduleLifecycleDiagnostics() {
+        lifecycleDiagnosticsTimers.forEach { $0.invalidate() }
+        lifecycleDiagnosticsTimers = [1, 3, 6, 9, 12].map { seconds in
+            Timer.scheduledTimer(withTimeInterval: TimeInterval(seconds), repeats: false) { [weak self] _ in
+                self?.recordWindowSnapshot(label: "startup-\(seconds)s")
+            }
+        }
+    }
+
+    /// 业务语义：窗口快照是启动诊断的核心证据，记录 AppKit 当前认可的 window 列表，而不是只记录业务 panel 状态。
+    private func recordWindowSnapshot(label: String) {
+        let windows = NSApp.windows.enumerated().map { index, window in
+            let frame = window.frame
+            return [
+                "#\(index)",
+                "title=\(window.title.replacingOccurrences(of: " ", with: "_"))",
+                "visible=\(window.isVisible)",
+                "miniaturized=\(window.isMiniaturized)",
+                "alpha=\(String(format: "%.3f", window.alphaValue))",
+                "level=\(Int(window.level.rawValue))",
+                "style=\(window.styleMask.rawValue)",
+                "frame=\(Int(frame.origin.x)),\(Int(frame.origin.y)),\(Int(frame.width)),\(Int(frame.height))"
+            ].joined(separator: ",")
+        }.joined(separator: "|")
+        LaunchLifecycleDiagnostics.record("window-snapshot", fields: [
+            "label": label,
+            "activationPolicy": "\(NSApp.activationPolicy().rawValue)",
+            "activity": AppLifecycleRetainer.hasActivityToken ? "held" : "missing",
+            "hidden": "\(NSApp.isHidden)",
+            "windows": windows.isEmpty ? "none" : windows
         ])
     }
 
