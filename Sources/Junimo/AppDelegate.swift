@@ -3,6 +3,7 @@ import Combine
 import JunimoCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let automaticTerminationReason = "Junimo runs as a menu bar utility."
     private var runtime: JunimoRuntime?
     private var panelController: NotchPanelController?
     private var cornerNotePanelController: CornerNotePanelController?
@@ -12,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 业务语义：AppDelegate 只组装 AppKit surface，把产品 runtime wiring 交给 JunimoRuntime。
     func applicationDidFinishLaunching(_ notification: Notification) {
+        ProcessInfo.processInfo.disableAutomaticTermination(automaticTerminationReason)
         NSApp.setActivationPolicy(.accessory)
 
         let runtime = JunimoRuntime(
@@ -54,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 业务语义：应用退出时通过 runtime 停止后台 monitor，避免 AppKit 层散落清理逻辑。
     func applicationWillTerminate(_ notification: Notification) {
         runtime?.stop()
+        ProcessInfo.processInfo.enableAutomaticTermination(automaticTerminationReason)
     }
 
     /// 业务语义：状态栏 Show 命令只恢复 app shell 面板，不触碰产品 runtime wiring。

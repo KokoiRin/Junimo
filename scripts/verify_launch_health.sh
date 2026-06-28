@@ -63,4 +63,10 @@ require("terminal" in threads, "missing Codex terminal thread count")
 print("Junimo launch health verified")
 PY
 
-pgrep -fl "$APP_DIR/Contents/MacOS/Junimo"
+STABILITY_SECONDS="${JUNIMO_LAUNCH_STABILITY_SECONDS:-5}"
+sleep "$STABILITY_SECONDS"
+
+if ! pgrep -fl "$APP_DIR/Contents/MacOS/Junimo"; then
+  echo "Junimo wrote health but did not remain running for ${STABILITY_SECONDS}s" >&2
+  exit 1
+fi
