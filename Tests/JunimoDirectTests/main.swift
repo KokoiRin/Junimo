@@ -141,7 +141,7 @@ upToDateFeature.applyReleaseCheck(.failure("bad release tag"), now: updateNow)
 expect(upToDateFeature.snapshot.state == .checkFailed, "Release check failure should be recorded")
 
 let actionCoordinator = TaskCoordinator(now: Date(timeIntervalSince1970: 100))
-expect(actionCoordinator.selfUpdateSnapshot.currentVersion == ReleaseVersion("0.1.9")!, "Coordinator default self-update version should match this release")
+expect(actionCoordinator.selfUpdateSnapshot.currentVersion == ReleaseVersion("0.1.10")!, "Coordinator default self-update version should match this release")
 expect(actionCoordinator.selfUpdateSnapshot.state == .idle, "Coordinator should expose idle self-update state by default")
 let oldVersionCoordinator = TaskCoordinator(currentVersion: ReleaseVersion("0.1.4")!, now: Date(timeIntervalSince1970: 100))
 oldVersionCoordinator.startSelfUpdateCheck(now: updateNow)

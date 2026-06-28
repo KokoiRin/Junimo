@@ -64,14 +64,30 @@ fi
 open "$DEST"
 VERIFY_SECONDS="${JUNIMO_LAUNCH_VERIFY_SECONDS:-8}"
 EXECUTABLE_PATH="$DEST/Contents/MacOS/Junimo"
-for _ in $(seq 1 "$VERIFY_SECONDS"); do
+LAUNCH_PID=""
+for _ in $(seq 1 5); do
   if pgrep -f "$EXECUTABLE_PATH" >/dev/null; then
-    echo "Junimo launched and stayed running."
-    exit 0
+    LAUNCH_PID="$(pgrep -f "$EXECUTABLE_PATH" | head -1)"
+    break
   fi
   sleep 1
 done
 
-echo "Junimo was installed to $DEST but did not stay running after launch." >&2
-echo "Health file, if written: ${JUNIMO_HEALTH_PATH:-/tmp/junimo-health.json}" >&2
-exit 1
+if [[ -z "$LAUNCH_PID" ]]; then
+  echo "Junimo was installed to $DEST but did not start." >&2
+  echo "Health file, if written: ${JUNIMO_HEALTH_PATH:-/tmp/junimo-health.json}" >&2
+  exit 1
+fi
+
+for _ in $(seq 1 "$VERIFY_SECONDS"); do
+  if ! pgrep -f "$EXECUTABLE_PATH" >/dev/null; then
+    echo "Junimo started as pid $LAUNCH_PID but exited before ${VERIFY_SECONDS}s." >&2
+    echo "Health file, if written: ${JUNIMO_HEALTH_PATH:-/tmp/junimo-health.json}" >&2
+    echo "Launch log: $HOME/Library/Application Support/Junimo/launch.log" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+echo "Junimo launched and stayed running for ${VERIFY_SECONDS}s."
+exit 0

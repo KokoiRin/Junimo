@@ -12,7 +12,8 @@ curl -fsSL https://raw.githubusercontent.com/KokoiRin/Junimo/main/scripts/instal
 
 The script downloads the latest GitHub Release zip from the stable release asset
 URL, without using the GitHub API, installs `Junimo.app` into `/Applications`
-when writable, and falls back to `~/Applications`.
+when writable, falls back to `~/Applications`, and verifies that the launched
+process remains alive for a short stability window.
 
 Installed apps can check for updates from the Junimo menu bar item. The first
 self-update slice exposes `Check for Updates...`; if the latest GitHub Release
@@ -32,8 +33,19 @@ JUNIMO_INSTALL_DIR="$HOME/Applications" scripts/install_latest.sh
 JUNIMO_REPO="KokoiRin/Junimo" scripts/install_latest.sh
 JUNIMO_ASSET_NAME="Junimo-macos-arm64.zip" scripts/install_latest.sh
 JUNIMO_NO_OPEN=1 scripts/install_latest.sh
+JUNIMO_LAUNCH_VERIFY_SECONDS=15 scripts/install_latest.sh
 JUNIMO_DRY_RUN=1 scripts/update_latest.sh
 ```
+
+If launch succeeds briefly and then exits, collect diagnostics with:
+
+```bash
+scripts/collect_launch_diagnostics.sh
+```
+
+The collector writes a desktop diagnostics directory containing launch
+breadcrumbs, the health file, screenshot-agent logs, process information, and
+recent Junimo/AppKit system log lines.
 
 ## Build Local Artifacts
 
