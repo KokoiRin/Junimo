@@ -52,7 +52,7 @@ public final class TaskCoordinator: ObservableObject {
 
     public init(
         core: (ActionCore & PomodoroCore & CommandCatalogCore & SessionTimelineCore & PreferencesCore & ConsoleStateCore & CornerNoteCore)? = CppBackedCore(),
-        currentVersion: ReleaseVersion = ReleaseVersion("0.1.6")!,
+        currentVersion: ReleaseVersion = ReleaseVersion("0.1.7")!,
         now: Date = Date(),
         nowProvider: @escaping () -> Date = Date.init
     ) {
