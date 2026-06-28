@@ -3,7 +3,6 @@ import Combine
 import JunimoCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let automaticTerminationReason = "Junimo runs as a menu bar utility."
     private var runtime: JunimoRuntime?
     private var lifecycleWindow: NSWindow?
     private var panelController: NotchPanelController?
@@ -11,13 +10,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var statusMenuUpdateItem: NSMenuItem?
     private var coordinatorCancellable: AnyCancellable?
+    private var allowsTermination = false
+
+    /// 业务语义：生命周期锚点尽早进入 AppKit 启动阶段，先于业务 runtime 和 panel 组装。
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        LaunchLifecycleDiagnostics.record("application-will-finish-launching")
+        installLifecycleAnchorWindow()
+    }
 
     /// 业务语义：AppDelegate 只组装 AppKit surface，把产品 runtime wiring 交给 JunimoRuntime。
     func applicationDidFinishLaunching(_ notification: Notification) {
-        ProcessInfo.processInfo.disableAutomaticTermination(automaticTerminationReason)
-        ProcessInfo.processInfo.disableSuddenTermination()
+        LaunchLifecycleDiagnostics.record("application-did-finish-launching")
         NSApp.setActivationPolicy(.accessory)
-        installLifecycleAnchorWindow()
 
         let runtime = JunimoRuntime(
             codexMonitorEnabled: ProcessInfo.processInfo.environment["JUNIMO_DISABLE_CODEX_MONITOR"] != "1"
@@ -27,10 +31,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = NotchPanelController(coordinator: coordinator)
         panelController = controller
         controller.show()
+        LaunchLifecycleDiagnostics.record("notch-panel-shown", fields: [
+            "visible": "\(controller.diagnostics().isVisible)",
+            "floating": "\(controller.diagnostics().isFloatingPanel)"
+        ])
         let cornerController = CornerNotePanelController(coordinator: coordinator)
         cornerNotePanelController = cornerController
         cornerController.show()
+        LaunchLifecycleDiagnostics.record("corner-panel-shown")
         installStatusItem()
+        LaunchLifecycleDiagnostics.record("status-item-installed")
         coordinatorCancellable = coordinator.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { [weak self] in
                 self?.refreshStatusMenu()
@@ -39,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         runtime.start { [weak runtime, weak controller] in
             guard let runtime, let controller else { return }
             runtime.writeHealth(panel: controller.diagnostics())
+            LaunchLifecycleDiagnostics.record("health-written-from-monitor-callback")
         }
         DispatchQueue.main.async { [weak runtime] in
             guard let runtime else { return }
@@ -48,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 cornerController.show()
             }
             runtime.writeHealth(panel: controller.diagnostics())
+            LaunchLifecycleDiagnostics.record("health-written-from-launch")
         }
     }
 
@@ -56,13 +68,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// 业务语义：只有用户主动退出或更新安装才能结束常驻进程，AppKit automatic termination 不能回收菜单栏工具。
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        LaunchLifecycleDiagnostics.record("application-should-terminate", fields: [
+            "allowed": "\(allowsTermination)"
+        ])
+        return allowsTermination ? .terminateNow : .terminateCancel
+    }
+
     /// 业务语义：应用退出时通过 runtime 停止后台 monitor，避免 AppKit 层散落清理逻辑。
     func applicationWillTerminate(_ notification: Notification) {
+        LaunchLifecycleDiagnostics.record("application-will-terminate")
         runtime?.stop()
         lifecycleWindow?.close()
         lifecycleWindow = nil
-        ProcessInfo.processInfo.enableAutomaticTermination(automaticTerminationReason)
-        ProcessInfo.processInfo.enableSuddenTermination()
     }
 
     /// 业务语义：状态栏 Show 命令只恢复 app shell 面板，不触碰产品 runtime wiring。
@@ -72,6 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 业务语义：状态栏 Quit 命令保持 macOS app shell 的退出入口。
     @objc private func quitFromMenu() {
+        allowsTermination = true
+        LaunchLifecycleDiagnostics.record("quit-requested-from-menu")
         NSApp.terminate(nil)
     }
 
@@ -80,6 +101,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let runtime else { return }
         if runtime.coordinator.selfUpdateSnapshot.state == .updateAvailable {
             runtime.installAvailableUpdate()
+            allowsTermination = true
+            LaunchLifecycleDiagnostics.record("terminate-requested-for-update")
             NSApp.terminate(nil)
         } else {
             runtime.checkForUpdatesNow()
@@ -108,9 +131,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 业务语义：LSUIElement 菜单栏应用也需要一个 AppKit 生命周期锚点，避免无普通窗口时被 automatic termination 回收。
     private func installLifecycleAnchorWindow() {
+        guard lifecycleWindow == nil else { return }
         let window = NSWindow(
-            contentRect: NSRect(x: -10_000, y: -10_000, width: 1, height: 1),
-            styleMask: [.borderless],
+            contentRect: NSRect(x: -10_000, y: -10_000, width: 64, height: 64),
+            styleMask: [.titled],
             backing: .buffered,
             defer: false
         )
@@ -119,9 +143,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.hasShadow = false
         window.ignoresMouseEvents = true
         window.isReleasedWhenClosed = false
+        window.title = "Junimo Lifecycle"
         window.collectionBehavior = [.canJoinAllSpaces, .stationary]
         window.orderFrontRegardless()
         lifecycleWindow = window
+        LaunchLifecycleDiagnostics.record("lifecycle-window-installed", fields: [
+            "visible": "\(window.isVisible)",
+            "styleMask": "\(window.styleMask.rawValue)"
+        ])
     }
 
     /// 业务语义：菜单标题是 self-update 快照的派生投影，不在 AppDelegate 内重新判断版本。

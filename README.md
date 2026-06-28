@@ -14,7 +14,8 @@ curl -fsSL https://raw.githubusercontent.com/KokoiRin/Junimo/main/scripts/instal
 The installer downloads the latest GitHub Release zip directly, without using
 the GitHub API, copies `Junimo.app` into `/Applications` when possible, falls
 back to `~/Applications`, removes the download quarantine attribute, and
-launches the app.
+launches the app. The installer waits for the launched process to remain alive
+for a short stability window before reporting success.
 
 After install, use the menu bar item `Check for Updates...`. When Junimo finds a
 new GitHub Release, the menu changes to `Install Update...`; choosing it starts
@@ -25,6 +26,17 @@ Command-line fallback:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KokoiRin/Junimo/main/scripts/update_latest.sh | bash
 ```
+
+Launch diagnostics:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/KokoiRin/Junimo/main/scripts/collect_launch_diagnostics.sh | bash
+```
+
+The app writes lifecycle breadcrumbs to
+`~/Library/Application Support/Junimo/launch.log`; the diagnostics script copies
+that log, `/tmp/junimo-health.json`, capture-agent logs, and recent Junimo
+system log lines into a desktop folder.
 
 ## Current Capabilities
 
