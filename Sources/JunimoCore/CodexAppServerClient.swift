@@ -40,6 +40,7 @@ public final class ProcessCodexAppServerClient: CodexAppServerQuerying {
 
     /// 业务语义：每组 app-server 请求独立握手，避免 quota 与 thread/list 互相影响。
     private func queryJSONL(timeout: TimeInterval, requests: [[String: Any]], requiredResponseIDs: Set<Int>) -> String? {
+        BrokenPipeGuard.install()
         let process = Process()
         process.executableURL = executableURL
         process.arguments = executableURL.path == "/usr/bin/env" ? ["codex", "app-server", "--stdio"] : ["app-server", "--stdio"]
@@ -58,7 +59,7 @@ public final class ProcessCodexAppServerClient: CodexAppServerQuerying {
             return nil
         }
 
-        write(
+        guard write(
             [
                 "id": 0,
                 "method": "initialize",
@@ -74,24 +75,39 @@ public final class ProcessCodexAppServerClient: CodexAppServerQuerying {
                 ]
             ],
             to: stdinPipe
-        )
+        ) else {
+            stop(process: process, stdinPipe: stdinPipe)
+            return nil
+        }
 
         Thread.sleep(forTimeInterval: min(0.5, timeout))
-        write(["method": "initialized", "params": [:]], to: stdinPipe)
-        requests.forEach { write($0, to: stdinPipe) }
+        guard process.isRunning, write(["method": "initialized", "params": [:]], to: stdinPipe) else {
+            stop(process: process, stdinPipe: stdinPipe)
+            return nil
+        }
+        for request in requests {
+            guard process.isRunning, write(request, to: stdinPipe) else {
+                stop(process: process, stdinPipe: stdinPipe)
+                return nil
+            }
+        }
         Thread.sleep(forTimeInterval: min(max(timeout - 0.5, 0.5), 4.0))
 
-        try? stdinPipe.fileHandleForWriting.close()
-        if process.isRunning {
-            process.terminate()
-        }
-        process.waitUntilExit()
+        stop(process: process, stdinPipe: stdinPipe)
         let output = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let responseIDs = Self.responseIDs(fromJSONL: output)
         guard requiredResponseIDs.isSubset(of: responseIDs) else {
             return output
         }
         return output
+    }
+
+    private func stop(process: Process, stdinPipe: Pipe) {
+        stdinPipe.fileHandleForWriting.closeFile()
+        if process.isRunning {
+            process.terminate()
+        }
+        process.waitUntilExit()
     }
 
     private static func responseIDs(fromJSONL jsonl: String) -> Set<Int> {
@@ -108,11 +124,12 @@ public final class ProcessCodexAppServerClient: CodexAppServerQuerying {
         )
     }
 
-    private func write(_ object: [String: Any], to pipe: Pipe) {
+    private func write(_ object: [String: Any], to pipe: Pipe) -> Bool {
         let line = Self.jsonLine(object)
-        if let data = line.data(using: .utf8) {
-            pipe.fileHandleForWriting.write(data)
+        guard let data = line.data(using: .utf8) else {
+            return false
         }
+        return BrokenPipeGuard.write(data, to: pipe.fileHandleForWriting)
     }
 
     private static func jsonLine(_ object: [String: Any]) -> String {

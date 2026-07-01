@@ -8,8 +8,8 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/zsh</string>
-    <string>__CAPTURE_SCRIPT__</string>
+    <string>/usr/bin/python3</string>
+    <string>__LOOP_SCRIPT__</string>
   </array>
 
   <key>EnvironmentVariables</key>
@@ -26,12 +26,14 @@
     <string>1000</string>
     <key>ACTIVITY_CAPTURE_WINDOW_END</key>
     <string>2200</string>
+    <key>ACTIVITY_CAPTURE_INTERVAL_SECONDS</key>
+    <string>60</string>
   </dict>
 
-  <key>StartInterval</key>
-  <integer>60</integer>
-
   <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
   <true/>
 
   <key>StandardOutPath</key>

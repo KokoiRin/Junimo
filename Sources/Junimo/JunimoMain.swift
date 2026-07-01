@@ -1,8 +1,10 @@
 import AppKit
+import JunimoCore
 
 @main
 struct JunimoMain {
     static func main() {
+        BrokenPipeGuard.install()
         AppLifecycleRetainer.retainBeforeAppRun()
         LaunchLifecycleDiagnostics.record("main-before-shared-application")
         let app = NSApplication.shared

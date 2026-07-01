@@ -43,10 +43,11 @@ swiftc \
   -lJunimoCore \
   -ljunimo_core_bridge \
   "$ROOT_DIR"/Sources/Junimo/ReminderDelivery.swift \
-  "$ROOT_DIR"/Sources/Junimo/SoftwareUpdateService.swift \
+  "$ROOT_DIR"/Sources/Junimo/LaunchLifecycleDiagnostics.swift \
   "$ROOT_DIR"/Sources/Junimo/CodexMonitorRefreshBridge.swift \
   "$ROOT_DIR"/Sources/Junimo/LaunchHealthReporter.swift \
   "$ROOT_DIR"/Sources/Junimo/JunimoRuntime.swift \
+  "$ROOT_DIR"/Sources/Junimo/JunimoSurfaceView.swift \
   "$ROOT_DIR"/Tests/JunimoAppDirectTests/main.swift \
   -o "$BUILD_DIR/JunimoAppSmokeTests" \
   -Xlinker -rpath \

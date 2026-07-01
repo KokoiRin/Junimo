@@ -30,7 +30,7 @@ final class TaskCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.preferences.accent, .mint)
         XCTAssertEqual(coordinator.preferences.expandedWidth, 760)
-        XCTAssertEqual(coordinator.preferences.expandedHeight, 300)
+        XCTAssertEqual(coordinator.preferences.expandedHeight, 340)
 
         coordinator.setDensity(.compact)
 

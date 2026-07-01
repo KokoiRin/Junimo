@@ -17,16 +17,6 @@ back to `~/Applications`, removes the download quarantine attribute, and
 launches the app. The installer waits for the launched process to remain alive
 for a short stability window before reporting success.
 
-After install, use the menu bar item `Check for Updates...`. When Junimo finds a
-new GitHub Release, the menu changes to `Install Update...`; choosing it starts
-the updater for the current app location.
-
-Command-line fallback:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/KokoiRin/Junimo/main/scripts/update_latest.sh | bash
-```
-
 Launch diagnostics:
 
 ```bash
@@ -45,6 +35,9 @@ system log lines into a desktop folder.
 - Invisible L-shaped bottom-right screen-edge hot zone that opens an editable quick note and todo panel after a 0.5s dwell.
 - Mock Codex/Hermes agent status.
 - CLI/app-server-backed Codex monitor shell for quota source, known/cloud threads, realtime app-server events, exec JSONL lifecycle events, completion alerts, and persistent review attention.
+- Chinese expanded console with module tabs for Codex, Focus, Note, and
+  Screenshot script state, backed by a centralized UI copy table for future
+  language switching.
 - Adapter-mediated action clicks through `TaskCoordinator`.
 - Recent activity recording.
 - Basic accent theme control.
@@ -55,6 +48,8 @@ system log lines into a desktop folder.
 - C++23-backed project profile snapshot.
 - C++23-backed execution session timeline.
 - C++23-backed UI preferences for accent and density.
+- Optional background activity capture script writes 960px-wide low-quality JPEGs
+  to `~/Documents/JunimoActivityCaptures` during the configured daytime window.
 
 ## Build And Test
 
@@ -140,7 +135,6 @@ Junimo requests top-center placement using the full screen frame. macOS may clam
 
 Quit options:
 
-- Expanded console power button.
 - Menu bar status item -> `Quit Junimo`.
 - Terminal: `pkill -f ".build/app/Junimo.app/Contents/MacOS/Junimo"`.
 

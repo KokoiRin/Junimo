@@ -26,7 +26,6 @@ public final class TaskCoordinator: ObservableObject {
     @Published public var theme: ConsoleTheme
     @Published public private(set) var activePomodoro: PomodoroSession?
     @Published public private(set) var pendingNotifications: [NotificationRequest]
-    @Published public private(set) var selfUpdateSnapshot: SelfUpdateSnapshot
     @Published public private(set) var isCornerNoteExpanded: Bool = false {
         didSet {
             if oldValue != isCornerNoteExpanded {
@@ -47,12 +46,10 @@ public final class TaskCoordinator: ObservableObject {
     private var cornerNoteFeature: CornerNoteFeature
     private var preferencesFeature: PreferencesFeature
     private var notificationOutbox: NotificationOutbox
-    private var selfUpdateFeature: SelfUpdateFeature
     private var nowProvider: () -> Date
 
     public init(
         core: (ActionCore & PomodoroCore & CommandCatalogCore & SessionTimelineCore & PreferencesCore & ConsoleStateCore & CornerNoteCore)? = CppBackedCore(),
-        currentVersion: ReleaseVersion = ReleaseVersion("0.1.11")!,
         now: Date = Date(),
         nowProvider: @escaping () -> Date = Date.init
     ) {
@@ -63,7 +60,6 @@ public final class TaskCoordinator: ObservableObject {
         self.cornerNoteFeature = CornerNoteFeature(core: resolvedCore)
         self.preferencesFeature = PreferencesFeature(core: resolvedCore)
         self.notificationOutbox = NotificationOutbox()
-        self.selfUpdateFeature = SelfUpdateFeature(currentVersion: currentVersion)
         self.nowProvider = nowProvider
         self.agents = consoleFeature.agents
         self.actions = consoleFeature.actions
@@ -78,7 +74,6 @@ public final class TaskCoordinator: ObservableObject {
         self.theme = preferencesFeature.theme
         self.activePomodoro = pomodoroFeature.activePomodoro
         self.pendingNotifications = notificationOutbox.pending
-        self.selfUpdateSnapshot = selfUpdateFeature.snapshot
         self.cornerNoteText = cornerNoteFeature.snapshot.text
         self.cornerTodos = cornerNoteFeature.snapshot.todos
     }
@@ -155,58 +150,6 @@ public final class TaskCoordinator: ObservableObject {
         objectWillChange.send()
         notificationOutbox.markDelivered(id: id)
         syncNotificationOutboxProjection()
-    }
-
-    /// 业务语义：coordinator 只转发更新检查 intent，版本状态由 SelfUpdateFeature 维护。
-    public func startSelfUpdateCheck(now: Date? = nil) {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.startSelfUpdateCheck(now: now)
-            }
-            return
-        }
-        objectWillChange.send()
-        selfUpdateFeature.startChecking(now: now ?? nowProvider())
-        syncSelfUpdateFeatureProjection()
-    }
-
-    /// 业务语义：release 检查结果通过 SelfUpdateFeature 转成公开投影，coordinator 不做网络解释。
-    public func applySelfUpdateCheck(_ result: SelfUpdateCheckResult, now: Date? = nil) {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.applySelfUpdateCheck(result, now: now)
-            }
-            return
-        }
-        objectWillChange.send()
-        selfUpdateFeature.applyReleaseCheck(result, now: now ?? nowProvider())
-        syncSelfUpdateFeatureProjection()
-    }
-
-    /// 业务语义：安装 intent 必须先经过 SelfUpdateFeature 的可安装状态门禁。
-    public func startSelfUpdateInstall(now: Date? = nil) {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.startSelfUpdateInstall(now: now)
-            }
-            return
-        }
-        objectWillChange.send()
-        selfUpdateFeature.startInstalling(now: now ?? nowProvider())
-        syncSelfUpdateFeatureProjection()
-    }
-
-    /// 业务语义：外部 updater 启动失败要回写可见状态，方便用户重试。
-    public func failSelfUpdateInstall(message: String, now: Date? = nil) {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.failSelfUpdateInstall(message: message, now: now)
-            }
-            return
-        }
-        objectWillChange.send()
-        selfUpdateFeature.applyInstallFailure(message: message, now: now ?? nowProvider())
-        syncSelfUpdateFeatureProjection()
     }
 
     /// 业务语义：collapsed 刘海右侧优先显示待处理结果，其次显示活跃 Codex 状态，最后显示配额。
@@ -350,11 +293,6 @@ public final class TaskCoordinator: ObservableObject {
     /// 业务语义：coordinator 暴露通知队列投影给 app shell，但不直接拥有 outbox 状态。
     private func syncNotificationOutboxProjection() {
         pendingNotifications = notificationOutbox.pending
-    }
-
-    /// 业务语义：coordinator 只同步 SelfUpdateFeature 快照，避免成为第二个更新状态 owner。
-    private func syncSelfUpdateFeatureProjection() {
-        selfUpdateSnapshot = selfUpdateFeature.snapshot
     }
 
     /// 业务语义：coordinator 只同步 PomodoroFeature 投影，避免重新拥有 timer effect 规则。
