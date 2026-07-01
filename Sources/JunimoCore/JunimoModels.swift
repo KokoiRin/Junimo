@@ -111,6 +111,44 @@ public struct DiagnosticLogEntry: Identifiable, Equatable {
     }
 }
 
+public struct ActivityCaptureDailyStats: Equatable {
+    public var dateLabel: String
+    public var directoryPath: String
+    public var imageCount: Int
+    public var indexedRowCount: Int
+    public var validIndexedFileCount: Int
+    public var missingIndexedFileCount: Int
+    public var totalBytes: Int64
+    public var latestFileName: String
+    public var latestCaptureAt: Date?
+
+    public init(
+        dateLabel: String,
+        directoryPath: String,
+        imageCount: Int = 0,
+        indexedRowCount: Int = 0,
+        validIndexedFileCount: Int = 0,
+        missingIndexedFileCount: Int = 0,
+        totalBytes: Int64 = 0,
+        latestFileName: String = "",
+        latestCaptureAt: Date? = nil
+    ) {
+        self.dateLabel = dateLabel
+        self.directoryPath = directoryPath
+        self.imageCount = imageCount
+        self.indexedRowCount = indexedRowCount
+        self.validIndexedFileCount = validIndexedFileCount
+        self.missingIndexedFileCount = missingIndexedFileCount
+        self.totalBytes = totalBytes
+        self.latestFileName = latestFileName
+        self.latestCaptureAt = latestCaptureAt
+    }
+
+    public var hasCaptures: Bool {
+        imageCount > 0 || indexedRowCount > 0
+    }
+}
+
 public enum ConsoleAccent: String, CaseIterable, Identifiable, Equatable {
     case mint
     case amber

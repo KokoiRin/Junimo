@@ -252,7 +252,9 @@ expect(panelCopy.pageTitle(.capture) == "截图", "Main panel should expose the 
 expect(panelCopy.pageTitle(.logs) == "日志", "Main panel should expose the diagnostics log page in Chinese")
 expect(panelCopy.readableValueFontSize >= 13, "Main panel value text should use a larger readable type scale")
 expect(panelCopy.headerSubtitle("Swift/AppKit shell").hasPrefix("本地控制台"), "Main panel copy should come from Chinese copy bundle")
-expect(panelCopy.captureBoundaryDetail.contains("独立后台脚本"), "Capture page should document that screenshot capture is detached")
+expect(panelCopy.captureBoundaryDetail.contains("终端手动运行脚本"), "Capture page should document manual terminal capture")
+expect(!panelCopy.captureBoundaryDetail.contains("LaunchAgent"), "Capture page should not mention LaunchAgent")
+expect(panelCopy.captureManualCommand == "scripts/run_activity_capture_manual.sh", "Capture page should point to the manual capture command")
 expect(panelCopy.statusNeedsSetup == "实时配额未连接", "Needs-setup Codex status should explain the missing live quota connection")
 
 print("Junimo app bridge smoke tests passed")

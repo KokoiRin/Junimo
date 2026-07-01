@@ -445,21 +445,26 @@ struct JunimoSurfaceView: View {
 
     private var capturePage: some View {
         HStack(alignment: .top, spacing: 12) {
-            modulePanel(title: copy.captureTitle, status: copy.externalScript, statusColor: .blue) {
+            modulePanel(title: copy.captureTitle, status: captureStatsStatus, statusColor: .blue) {
                 VStack(alignment: .leading, spacing: 10) {
-                    infoRow(copy.captureOwnerLabel, copy.captureOwner)
-                    infoRow(copy.capturePathLabel, "~/Documents/JunimoActivityCaptures")
-                    infoRow(copy.capturePolicyLabel, copy.capturePolicy)
+                    infoRow(copy.captureCountLabel, "\(coordinator.activityCaptureStats.imageCount) \(copy.captureImageUnit)")
+                    infoRow(copy.captureValidLabel, captureValiditySummary)
+                    infoRow(copy.captureSizeLabel, formattedBytes(coordinator.activityCaptureStats.totalBytes))
+                    infoRow(copy.captureLatestLabel, latestCaptureSummary)
                 }
             }
             .frame(width: 332)
 
-            modulePanel(title: copy.captureBoundaryTitle, status: copy.detached, statusColor: .gray) {
-                Text(copy.captureBoundaryDetail)
-                    .font(.system(size: copy.readableValueFontSize, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.56))
-                    .lineLimit(5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            modulePanel(title: copy.captureManualTitle, status: copy.manualOnly, statusColor: .gray) {
+                VStack(alignment: .leading, spacing: 10) {
+                    infoRow(copy.captureCommandLabel, copy.captureManualCommand)
+                    infoRow(copy.capturePathLabel, shortenedCapturePath)
+                    Text(copy.captureBoundaryDetail)
+                        .font(.system(size: copy.readableValueFontSize, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.56))
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         .frame(height: 220)
@@ -766,6 +771,48 @@ struct JunimoSurfaceView: View {
         return "\(logSourceLabel(entry.source)) · \(entry.title)"
     }
 
+    private var captureStatsStatus: String {
+        coordinator.activityCaptureStats.hasCaptures ? copy.captureHasData : copy.captureNoData
+    }
+
+    private var captureValiditySummary: String {
+        let stats = coordinator.activityCaptureStats
+        guard stats.indexedRowCount > 0 else {
+            return copy.captureNoIndex
+        }
+        let invalid = max(0, stats.indexedRowCount - stats.validIndexedFileCount)
+        return "\(stats.validIndexedFileCount)/\(stats.indexedRowCount) \(copy.captureValidUnit)，\(invalid) \(copy.captureInvalidUnit)"
+    }
+
+    private var latestCaptureSummary: String {
+        let stats = coordinator.activityCaptureStats
+        guard let latest = stats.latestCaptureAt, !stats.latestFileName.isEmpty else {
+            return copy.noCaptureToday
+        }
+        return "\(latest.formatted(date: .omitted, time: .shortened)) · \(stats.latestFileName)"
+    }
+
+    private var shortenedCapturePath: String {
+        let path = coordinator.activityCaptureStats.directoryPath
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        guard path.hasPrefix(home) else {
+            return path
+        }
+        return "~" + path.dropFirst(home.count)
+    }
+
+    private func formattedBytes(_ bytes: Int64) -> String {
+        guard bytes > 0 else {
+            return "0 KB"
+        }
+        let mb = Double(bytes) / 1_048_576.0
+        if mb >= 1 {
+            return String(format: "%.1f MB", mb)
+        }
+        let kb = Double(bytes) / 1024.0
+        return String(format: "%.0f KB", kb)
+    }
+
     private func quotaWindowText(_ window: CodexUsageWindow?) -> String? {
         guard let window, let usedPercent = window.usedPercent else {
             return nil
@@ -952,7 +999,7 @@ struct JunimoSurfaceCopy {
     let connectionTitle = "连接情况"
     let reminderTitle = "提醒"
     let todoPreviewTitle = "待办预览"
-    let captureBoundaryTitle = "边界"
+    let captureManualTitle = "手动运行"
     let logTimelineTitle = "日志时间线"
     let latestTitle = "最近"
 
@@ -963,9 +1010,12 @@ struct JunimoSurfaceCopy {
     let sessionLabel = "会话"
     let noteStatusLabel = "便签"
     let todoLabel = "待办"
-    let captureOwnerLabel = "归属"
+    let captureCountLabel = "张数"
+    let captureValidLabel = "索引"
+    let captureSizeLabel = "大小"
+    let captureLatestLabel = "最新"
     let capturePathLabel = "目录"
-    let capturePolicyLabel = "策略"
+    let captureCommandLabel = "命令"
     let latestLogLabel = "最新"
     let logCountLabel = "数量"
 
@@ -977,13 +1027,11 @@ struct JunimoSurfaceCopy {
     let ready = "就绪"
     let active = "运行中"
     let open = "已打开"
-    let externalScript = "外部脚本"
-    let detached = "已拆出"
+    let manualOnly = "手动"
     let debugReady = "可调试"
 
-    let captureOwner = "LaunchAgent 后台脚本"
-    let capturePolicy = "应用内不再请求截图权限"
-    let captureBoundaryDetail = "截图能力已经从 Junimo 主面板拆出。这里仅提示它是独立后台脚本；启动、停止和权限处理不放在主工具里。"
+    let captureManualCommand = "scripts/run_activity_capture_manual.sh"
+    let captureBoundaryDetail = "Junimo 只统计今天目录里的结果；截图采集需要你在终端手动运行脚本，权限归属于那个终端进程。"
 
     let noConnectionFindings = "还没有连接诊断信息"
     let noReviewPending = "没有待确认结果"
@@ -995,6 +1043,7 @@ struct JunimoSurfaceCopy {
     let noteSaved = "便签内容已保存"
     let noTodos = "还没有待办"
     let noLogs = "还没有诊断日志"
+    let noCaptureToday = "今天还没有截图"
     let noActivityTitle = "暂无活动"
     let noActivityDetail = "Junimo 正在等待下一次本地事件"
     let emptyTodoTitle = "未命名待办"
@@ -1008,6 +1057,12 @@ struct JunimoSurfaceCopy {
     let todoOpenSuffix = "个未完成"
     let todoCountSuffix = "条"
     let logCountSuffix = "条"
+    let captureImageUnit = "张"
+    let captureValidUnit = "有效"
+    let captureInvalidUnit = "无效/缺失"
+    let captureHasData = "有数据"
+    let captureNoData = "无数据"
+    let captureNoIndex = "没有索引"
     let endsAtPrefix = "预计结束"
     let hourWindow = "小时窗口"
     let weekWindow = "本周窗口"
@@ -1071,7 +1126,7 @@ struct JunimoSurfaceCopy {
         case .codex: "查看 Codex 配额、线程和连接"
         case .focus: "查看和控制番茄钟"
         case .note: "打开便签和待办"
-        case .capture: "查看独立截图脚本的边界"
+        case .capture: "查看今天手动截图脚本抓到的数据"
         case .logs: "查看 Junimo 行为日志和写入调试记录"
         }
     }

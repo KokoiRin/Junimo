@@ -162,6 +162,38 @@ expect(actionCoordinator.diagnosticLogs.first?.source == .debug, "Debug probe sh
 expect(actionCoordinator.diagnosticLogs.first?.title == "调试探针", "Debug probe title should be user-readable")
 expect(actionCoordinator.diagnosticLogs.contains { $0.source == .app && $0.title == "主面板展开" }, "Panel expansion should record an app diagnostic log")
 
+let captureStatsNow = Date(timeIntervalSince1970: 1_800_000_000)
+let captureComponents = Calendar.current.dateComponents([.year, .month, .day], from: captureStatsNow)
+let captureDay = String(
+    format: "%04d-%02d-%02d",
+    captureComponents.year ?? 0,
+    captureComponents.month ?? 0,
+    captureComponents.day ?? 0
+)
+let captureRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+    .appendingPathComponent("junimo-capture-stats-\(UUID().uuidString)", isDirectory: true)
+let captureDayDirectory = captureRoot.appendingPathComponent(captureDay, isDirectory: true)
+try FileManager.default.createDirectory(at: captureDayDirectory, withIntermediateDirectories: true)
+let indexedCaptureName = "\(captureDay)_10-00-00.jpg"
+let latestCaptureName = "\(captureDay)_11-00-00.jpg"
+try Data(repeating: 1, count: 1200).write(to: captureDayDirectory.appendingPathComponent(indexedCaptureName))
+try Data(repeating: 2, count: 800).write(to: captureDayDirectory.appendingPathComponent(latestCaptureName))
+try """
+timestamp,file,width,height,bytes
+\(captureDay)_10-00-00,\(indexedCaptureName),960,540,1200
+\(captureDay)_10-30-00,missing.jpg,960,540,900
+""".write(to: captureDayDirectory.appendingPathComponent("index.csv"), atomically: true, encoding: .utf8)
+
+let captureCoordinator = TaskCoordinator(captureDirectory: captureRoot, now: captureStatsNow)
+// 业务语义：截图页只统计今天手动脚本落盘的数据，不依赖 LaunchAgent 运行状态。
+expect(captureCoordinator.activityCaptureStats.imageCount == 2, "Capture stats should count today's image files")
+expect(captureCoordinator.activityCaptureStats.indexedRowCount == 2, "Capture stats should count index rows")
+expect(captureCoordinator.activityCaptureStats.validIndexedFileCount == 1, "Capture stats should count valid indexed files")
+expect(captureCoordinator.activityCaptureStats.missingIndexedFileCount == 1, "Capture stats should count missing indexed files")
+expect(captureCoordinator.activityCaptureStats.totalBytes == 2000, "Capture stats should sum today's image bytes")
+expect(captureCoordinator.activityCaptureStats.latestFileName == latestCaptureName, "Capture stats should expose latest capture")
+try? FileManager.default.removeItem(at: captureRoot)
+
 actionCoordinator.performAction(id: "codex")
 expect(actionCoordinator.agents.first(where: { $0.id == "codex" })?.status == .running, "Codex agent should be running")
 // 业务语义：Junimo 是外部 Codex 状态中心，Codex action 不能伪造本地 running thread。

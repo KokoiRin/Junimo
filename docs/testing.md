@@ -13,6 +13,8 @@ Junimo should use a testing pyramid rather than treating one large script as the
    - Main panel page/copy contract, readable type scale, and Logs page contract:
      `scripts/test.sh`
    - Diagnostic log bounded timeline and debug probe behavior: `scripts/test.sh`
+   - Manual activity capture daily statistics with temp-directory fixtures:
+     `scripts/test.sh`
    - Direct/app builds: `scripts/verify_ci.sh`
 3. End-to-end tests stay small and prove the app can launch and run an observable scenario.
    - Launch health: `scripts/verify_launch_health.sh`

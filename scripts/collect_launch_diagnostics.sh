@@ -5,7 +5,7 @@ OUT_DIR="${JUNIMO_DIAGNOSTICS_DIR:-$HOME/Desktop/junimo-diagnostics-$(date +%Y%m
 HEALTH_PATH="${JUNIMO_HEALTH_PATH:-/tmp/junimo-health.json}"
 APP_PATH="${JUNIMO_APP_PATH:-/Applications/Junimo.app}"
 LAUNCH_LOG="$HOME/Library/Application Support/Junimo/launch.log"
-CAPTURE_SUPPORT="$HOME/Library/Application Support/Junimo/ActivityCapture"
+CAPTURE_DIR="$HOME/Documents/JunimoActivityCaptures/$(date +%Y-%m-%d)"
 
 mkdir -p "$OUT_DIR"
 
@@ -20,8 +20,7 @@ copy_if_exists() {
 copy_if_exists "$HEALTH_PATH" "junimo-health.json"
 copy_if_exists "$HEALTH_PATH.error" "junimo-health.json.error"
 copy_if_exists "$LAUNCH_LOG" "launch.log"
-copy_if_exists "$CAPTURE_SUPPORT/activity-capture.out.log" "activity-capture.out.log"
-copy_if_exists "$CAPTURE_SUPPORT/activity-capture.err.log" "activity-capture.err.log"
+copy_if_exists "$CAPTURE_DIR/index.csv" "today-capture-index.csv"
 
 {
   echo "date=$(date '+%Y-%m-%d %H:%M:%S %Z')"
@@ -34,7 +33,7 @@ copy_if_exists "$CAPTURE_SUPPORT/activity-capture.err.log" "activity-capture.err
   echo
   ps -axo pid,etime,stat,command | grep -F "Junimo.app/Contents/MacOS/Junimo" | grep -v grep || true
   echo
-  launchctl print "gui/$UID/com.bytedance.junimo.activity-capture" 2>&1 || true
+  ps -axo pid,etime,stat,command | grep -F "capture_activity_snapshot.py" | grep -v grep || true
 } > "$OUT_DIR/summary.txt"
 
 log show \

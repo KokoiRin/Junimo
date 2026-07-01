@@ -25,8 +25,8 @@ curl -fsSL https://raw.githubusercontent.com/KokoiRin/Junimo/main/scripts/collec
 
 The app writes lifecycle breadcrumbs to
 `~/Library/Application Support/Junimo/launch.log`; the diagnostics script copies
-that log, `/tmp/junimo-health.json`, capture-agent logs, and recent Junimo
-system log lines into a desktop folder.
+that log, `/tmp/junimo-health.json`, today's capture index if present, and
+recent Junimo system log lines into a desktop folder.
 
 ## Current Capabilities
 
@@ -50,8 +50,8 @@ system log lines into a desktop folder.
 - C++23-backed project profile snapshot.
 - C++23-backed execution session timeline.
 - C++23-backed UI preferences for accent and density.
-- Optional background activity capture script writes 960px-wide low-quality JPEGs
-  to `~/Documents/JunimoActivityCaptures` during the configured daytime window.
+- Optional manual activity capture script writes 960px-wide low-quality JPEGs
+  to `~/Documents/JunimoActivityCaptures` while it is running in a terminal.
 
 ## Build And Test
 

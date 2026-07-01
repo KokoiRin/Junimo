@@ -32,21 +32,22 @@ scripts/collect_launch_diagnostics.sh
 ```
 
 The collector writes a desktop diagnostics directory containing launch
-breadcrumbs, the health file, screenshot-agent logs, process information, and
-recent Junimo/AppKit system log lines.
+breadcrumbs, the health file, today's capture index when present, process
+information, and recent Junimo/AppKit system log lines.
 
 ## Activity Capture
 
-Activity screenshot capture is intentionally outside `Junimo.app`. Install the
-background LaunchAgent when captures are needed:
+Activity screenshot capture is intentionally outside `Junimo.app`. Run the
+manual foreground loop from a terminal when captures are needed:
 
 ```bash
-scripts/install_activity_capture_agent.sh
+scripts/run_activity_capture_manual.sh
 ```
 
-The agent runs the Python capture script with macOS `screencapture`, so screen
-recording permission belongs to the background script process rather than the
-Junimo menu bar app.
+The loop runs the Python capture script with macOS `screencapture`, so Screen
+Recording permission belongs to the terminal/Python process you started rather
+than the Junimo menu bar app. Keep that terminal open; stop capture with
+`Ctrl-C`.
 
 Captures are written to:
 
@@ -54,10 +55,11 @@ Captures are written to:
 ~/Documents/JunimoActivityCaptures/<yyyy-mm-dd>/
 ```
 
-For a foreground loop while debugging, run:
+Useful manual overrides:
 
 ```bash
-scripts/start_activity_capture_loop.command
+ACTIVITY_CAPTURE_INTERVAL_SECONDS=30 scripts/run_activity_capture_manual.sh
+ACTIVITY_CAPTURE_IGNORE_SCHEDULE=1 scripts/run_activity_capture_manual.sh
 ```
 
 ## Build Local Artifacts

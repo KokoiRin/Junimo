@@ -5,9 +5,11 @@
 - [P1][架构重构] 当第二个真实 agent adapter 出现后，再抽象通用 adapter registry；当前先把 Codex adapter 边界拆清楚，不提前做通用注册表。
 - [P1][调试/验证] 为 collapsed attention badge 和菜单栏 Show/Quit 增加 UI 级验证；当前由 functional scenario、health snapshot 和代码检查间接覆盖。
 - [P1][调试/验证] 诊断日志先以内存时间线闭环；等使用中确认字段足够后，再考虑过滤、导出、跨启动持久化和外部 adapter 日志采集。
+- [P1][调试/验证] 手动截图采集已能统计今天文件；后续如仍出现“截图内容无效”，再增加图片内容有效性检测或分类，而不是恢复后台权限链路。
 
 ## Done
 
+- [P0][调试/验证] 手动截图采集与今日统计：移除 LaunchAgent 入口，提供终端前台采集脚本，主面板截图页只读今天落盘数据并统计数量、索引有效性、大小和最新文件。归档：openspec/changes/archive/2026-07-01-manual-activity-capture-stats/
 - [P0][调试/验证] 主面板诊断日志：Junimo 记录应用内行为和 feature 状态变化，在左侧“日志”页展示最近日志，并提供不触发外部权限的调试探针。归档：openspec/changes/archive/2026-07-01-add-diagnostic-log-surface/
 - [P0][新增需求] 已安装的 Junimo 可以从菜单检查 GitHub Release 新版本，发现新版本后通过 `Install Update...` 按钮从当前安装位置更新应用。归档：openspec/changes/archive/2026-06-28-add-self-update-check/
 - [P0][新增需求] Codex 状态提醒体验：Junimo 不伪造本地 running thread，只呈现 adapter 观测到的 running/waiting/done/failed，并在完成/失败时给出明显、持久、可清除的提示动画。归档：openspec/changes/archive/2026-06-27-improve-codex-status-attention/

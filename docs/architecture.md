@@ -23,9 +23,10 @@ modules with explicit state owners and test seams:
    delivery, Codex monitoring, and launch health diagnostics.
 3. Feature stores: own product state, reduce user intents and adapter events,
    and expose public snapshots. Initial feature boundaries are Console, Codex,
-   Pomodoro, Corner Note, Preferences, Diagnostics, and Sessions. Console,
-   Codex, Pomodoro, Corner Note, Preferences, and Diagnostics already have
-   explicit Swift feature owners behind the coordinator compatibility facade.
+   Pomodoro, Corner Note, Preferences, Diagnostics, Activity Capture Stats, and
+   Sessions. Console, Codex, Pomodoro, Corner Note, Preferences, Diagnostics,
+   and Activity Capture Stats already have explicit Swift feature owners behind
+   the coordinator compatibility facade.
 4. Adapters: own process, filesystem, OS, notification, and protocol I/O. Codex
    app-server, Codex CLI/exec streams, notification delivery, and persistence
    belong here.
@@ -131,8 +132,15 @@ The expanded panel is a Chinese module surface instead of a single dense
 dashboard. `JunimoSurfaceView` owns only presentation state for the selected
 page; feature state still comes from `TaskCoordinator` projections. The current
 tabs are Codex, Focus, Note, Screenshot, and Logs. This keeps each module
-readable and prevents detached capabilities, such as the background screenshot
+readable and prevents detached capabilities, such as the manual screenshot
 script, from looking like app-owned controls.
+
+The Screenshot page reads `TaskCoordinator.activityCaptureStats`, which is owned
+by `ActivityCaptureStatsFeature`. The feature only scans today's
+`~/Documents/JunimoActivityCaptures/<yyyy-mm-dd>/` directory and `index.csv` to
+summarize image count, indexed validity, byte size, and latest capture. It never
+starts capture, installs background services, or requests Screen Recording
+permission; capture is a foreground terminal script responsibility.
 
 The Logs page reads `TaskCoordinator.diagnosticLogs`, which is owned by
 `DiagnosticLogFeature`. It is an in-memory, bounded troubleshooting timeline

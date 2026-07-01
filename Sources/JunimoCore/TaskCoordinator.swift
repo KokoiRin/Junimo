@@ -21,6 +21,7 @@ public final class TaskCoordinator: ObservableObject {
     @Published public private(set) var projectProfile: ProjectProfileSummary
     @Published public private(set) var sessions: [ExecutionSessionSummary]
     @Published public private(set) var diagnosticLogs: [DiagnosticLogEntry]
+    @Published public private(set) var activityCaptureStats: ActivityCaptureDailyStats
     @Published public private(set) var codexMonitor: CodexMonitorSnapshot
     @Published public private(set) var codexReviewItems: [CodexReviewItem]
     @Published public private(set) var preferences: ConsolePreferences
@@ -43,27 +44,32 @@ public final class TaskCoordinator: ObservableObject {
 
     private var consoleFeature: ConsoleFeature
     private var diagnosticLogFeature: DiagnosticLogFeature
+    private var activityCaptureStatsFeature: ActivityCaptureStatsFeature
     private var pomodoroFeature: PomodoroFeature
     private var codexFeature: CodexFeature
     private var cornerNoteFeature: CornerNoteFeature
     private var preferencesFeature: PreferencesFeature
     private var notificationOutbox: NotificationOutbox
     private var nowProvider: () -> Date
+    private var nextActivityCaptureStatsRefresh: Date
 
     public init(
         core: (ActionCore & PomodoroCore & CommandCatalogCore & SessionTimelineCore & PreferencesCore & ConsoleStateCore & CornerNoteCore)? = CppBackedCore(),
+        captureDirectory: URL? = nil,
         now: Date = Date(),
         nowProvider: @escaping () -> Date = Date.init
     ) {
         let resolvedCore = core ?? SwiftFallbackCore()
         self.consoleFeature = ConsoleFeature(core: resolvedCore)
         self.diagnosticLogFeature = DiagnosticLogFeature(now: now)
+        self.activityCaptureStatsFeature = ActivityCaptureStatsFeature(rootDirectory: captureDirectory, now: now)
         self.pomodoroFeature = PomodoroFeature(core: resolvedCore)
         self.codexFeature = CodexFeature(now: now)
         self.cornerNoteFeature = CornerNoteFeature(core: resolvedCore)
         self.preferencesFeature = PreferencesFeature(core: resolvedCore)
         self.notificationOutbox = NotificationOutbox()
         self.nowProvider = nowProvider
+        self.nextActivityCaptureStatsRefresh = now.addingTimeInterval(60)
         self.agents = consoleFeature.agents
         self.actions = consoleFeature.actions
         self.recentActivities = consoleFeature.recentActivities
@@ -72,6 +78,7 @@ public final class TaskCoordinator: ObservableObject {
         self.projectProfile = consoleFeature.projectProfile
         self.sessions = consoleFeature.sessions
         self.diagnosticLogs = diagnosticLogFeature.entries
+        self.activityCaptureStats = activityCaptureStatsFeature.todayStats
         self.codexMonitor = codexFeature.monitor
         self.codexReviewItems = codexFeature.reviewItems
         self.preferences = preferencesFeature.preferences
@@ -112,6 +119,7 @@ public final class TaskCoordinator: ObservableObject {
 
     public func advanceTime(to date: Date) {
         completePomodoroIfNeeded(now: date)
+        refreshActivityCaptureStatsIfNeeded(now: date)
     }
 
     /// 业务语义：coordinator 只转发 action intent，console feature 返回的 effects 再接入兼容桥。
@@ -320,6 +328,12 @@ public final class TaskCoordinator: ObservableObject {
         syncDiagnosticLogProjection()
     }
 
+    /// 业务语义：截图统计只刷新本地落盘数据，不启动截图进程。
+    public func refreshActivityCaptureStats(now: Date? = nil) {
+        activityCaptureStatsFeature.refresh(now: now ?? nowProvider())
+        syncActivityCaptureStatsProjection()
+    }
+
     /// 业务语义：snapshot 只更新观测到的状态，不能把缺失线程伪造成完成。
     public func refreshCodexMonitor(_ snapshot: CodexMonitorSnapshot, now: Date? = nil) {
         guard Thread.isMainThread else {
@@ -405,9 +419,22 @@ public final class TaskCoordinator: ObservableObject {
         )
     }
 
+    /// 业务语义：截图统计是低频辅助信息，避免每次 UI timer tick 都扫描文件系统。
+    private func refreshActivityCaptureStatsIfNeeded(now: Date) {
+        guard now >= nextActivityCaptureStatsRefresh else {
+            return
+        }
+        nextActivityCaptureStatsRefresh = now.addingTimeInterval(60)
+        refreshActivityCaptureStats(now: now)
+    }
+
     /// 业务语义：coordinator 暴露诊断日志投影，但不重新拥有日志裁剪规则。
     private func syncDiagnosticLogProjection() {
         diagnosticLogs = diagnosticLogFeature.entries
+    }
+
+    private func syncActivityCaptureStatsProjection() {
+        activityCaptureStats = activityCaptureStatsFeature.todayStats
     }
 
     /// 业务语义：所有 coordinator 级日志写入统一经过 feature，保持日志顺序和上限一致。
