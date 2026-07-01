@@ -10,7 +10,7 @@ Completed:
 - Preserved app-server `notLoaded`, `idle`, and unknown non-terminal statuses as open work instead of quota-only idle.
 - Removed snapshot-absence completion: a missing active thread no longer creates a completion notification or review item.
 - Added active/open/terminal lifecycle counts to health snapshots and health-script assertions.
-- Updated collapsed status priority so open work shows as `Codex open N` before quota text.
+- Later corrected collapsed status semantics so open local history no longer shows as `Codex open N`; only review, running/waiting, or quota text drive the collapsed status.
 
 Verified:
 

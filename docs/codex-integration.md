@@ -111,6 +111,9 @@ visible in the island until the user acknowledges it.
   same realtime monitor path.
 - `CodexStatusParser` parses doctor, cloud list, app-server quota, and
   app-server thread-list payloads into typed monitor snapshots.
+- `thread/list` records whose status is only `idle`, `notLoaded`, or unknown
+  are reported as diagnostic local history in the finding detail, but they do
+  not enter the current monitor thread list.
 - `CodexRealtimeEventParser` parses app-server notifications and exec JSONL
   lines into typed `CodexRealtimeEvent` values.
 - `CodexMonitorService` connects provider snapshots and realtime streams to a
@@ -127,10 +130,10 @@ visible in the island until the user acknowledges it.
   the collapsed island's right-side status pill shows `Codex done` or
   `Codex failed`; the collapsed island renders a persistent animated attention
   cue, and the collapsed status pill and badge can acknowledge the latest
-  result directly. Without a review or active thread, remaining open
-  conversations show as `Codex open N` before the UI falls back to quota text.
-  The expanded island also shows the latest result with an acknowledgement
-  control.
+  result directly. Without a review or explicit running/waiting thread, the
+  collapsed status falls back to quota text; `open` local thread records remain
+  available for diagnostics but do not claim current Codex work. The expanded
+  island also shows the latest result with an acknowledgement control.
 
 ## Next Adapter Work
 

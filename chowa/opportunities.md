@@ -9,6 +9,7 @@
 
 ## Done
 
+- [P0][Bug 修复] 校准 Codex 当前状态语义：`thread/list` 的 idle/notLoaded/unknown 本地记录只作为历史诊断，不进入当前 monitor；主面板不再用 open 历史驱动折叠状态、线程摘要或数据来源可用分数。
 - [P0][调试/验证] 手动截图采集与今日统计：移除 LaunchAgent 入口，提供终端前台采集脚本，主面板截图页只读今天落盘数据并统计数量、索引有效性、大小和最新文件。归档：openspec/changes/archive/2026-07-01-manual-activity-capture-stats/
 - [P0][调试/验证] 主面板诊断日志：Junimo 记录应用内行为和 feature 状态变化，在左侧“日志”页展示最近日志，并提供不触发外部权限的调试探针。归档：openspec/changes/archive/2026-07-01-add-diagnostic-log-surface/
 - [P0][新增需求] 已安装的 Junimo 可以从菜单检查 GitHub Release 新版本，发现新版本后通过 `Install Update...` 按钮从当前安装位置更新应用。归档：openspec/changes/archive/2026-06-28-add-self-update-check/

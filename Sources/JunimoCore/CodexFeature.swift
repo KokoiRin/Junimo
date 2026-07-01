@@ -77,16 +77,13 @@ public struct CodexFeature {
         self.reviewItems = reviewItems.sorted { $0.createdAt > $1.createdAt }
     }
 
-    /// 业务语义：collapsed 刘海右侧优先显示待处理结果，其次显示活跃 Codex 状态，最后显示配额。
+    /// 业务语义：collapsed 刘海右侧只显示明确结果、明确活跃状态或配额，不把历史 open 线程伪装成当前工作。
     public var collapsedStatusText: String {
         if let review = reviewItems.first {
             return review.cueText
         }
         if let activeThread = monitor.threads.first(where: { $0.status.isActive }) {
             return activeThread.status == .waiting ? "Codex waiting" : "Codex running"
-        }
-        if monitor.openThreadCount > 0 {
-            return "Codex open \(monitor.openThreadCount)"
         }
         return monitor.usage.summaryText
     }
@@ -110,13 +107,6 @@ public struct CodexFeature {
             )
         }
 
-        if monitor.openThreadCount > 0 {
-            return CodexFeatureAgentProjection(
-                status: .idle,
-                detail: "\(monitor.openThreadCount) Codex thread\(monitor.openThreadCount == 1 ? "" : "s") open"
-            )
-        }
-
         if let latest = monitor.latestThread, latest.status.isTerminal {
             return CodexFeatureAgentProjection(
                 status: latest.status == .failed ? .failed : .succeeded,
@@ -127,7 +117,7 @@ public struct CodexFeature {
         return CodexFeatureAgentProjection(status: .idle, detail: monitor.usage.detail)
     }
 
-    /// 业务语义：snapshot 只更新观测到的状态，不能把缺失线程伪造成完成。
+    /// 业务语义：snapshot 缺失只保留明确 running/waiting 的工作；open 只作为本次观测记录，不驱动长期主状态。
     @discardableResult
     public mutating func refreshMonitor(_ snapshot: CodexMonitorSnapshot, now: Date) -> CodexFeatureEffects {
         let incomingThreadIDs = Set(snapshot.threads.map(\.id))
@@ -136,8 +126,8 @@ public struct CodexFeature {
             !incomingFindingIDs.contains(finding.id)
                 && (finding.id.contains("realtime") || finding.id.contains("stream"))
         }
-        let retainedNonIncomingWork = monitor.threads.filter { thread in
-            thread.status.isNonTerminalWork && !incomingThreadIDs.contains(thread.id)
+        let retainedActiveWork = monitor.threads.filter { thread in
+            thread.status.isActive && !incomingThreadIDs.contains(thread.id)
         }
 
         monitor.usage = snapshot.usage
@@ -145,7 +135,7 @@ public struct CodexFeature {
         monitor.refreshedAt = snapshot.refreshedAt
         monitor.threadCounts = snapshot.threadCounts
         monitor.threads.removeAll { thread in
-            !thread.status.isNonTerminalWork && !incomingThreadIDs.contains(thread.id)
+            !thread.status.isActive && !incomingThreadIDs.contains(thread.id)
         }
 
         var effects = CodexFeatureEffects.none
@@ -162,7 +152,7 @@ public struct CodexFeature {
         }
 
         let reducedThreads = CodexThreadLifecycleReducer.reduce(threads: monitor.threads).visibleThreads
-        let retainedCounts = CodexThreadCounts.from(retainedNonIncomingWork)
+        let retainedCounts = CodexThreadCounts.from(retainedActiveWork)
         monitor = CodexMonitorSnapshot(
             usage: monitor.usage,
             threads: reducedThreads,

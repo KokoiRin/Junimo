@@ -21,6 +21,19 @@ struct JunimoSurfaceView: View {
     @State private var lastAttentionID = ""
 
     private let copy = JunimoSurfaceCopy.simplifiedChinese
+    private let codexDataSourceFindingIDs: Set<String> = [
+        "app-server-rate-limits",
+        "app-server-realtime",
+        "cloud-list",
+        "exec-json"
+    ]
+    private let codexDisplayedFindingIDs: Set<String> = [
+        "app-server-rate-limits",
+        "app-server-threads",
+        "app-server-realtime",
+        "cloud-list",
+        "exec-json"
+    ]
 
     var body: some View {
         Group {
@@ -357,7 +370,7 @@ struct JunimoSurfaceView: View {
             }
             .frame(width: 332)
 
-            modulePanel(title: copy.connectionTitle, status: "\(connectionReadyCount)/\(connectionFindings.count)", statusColor: .green) {
+            modulePanel(title: copy.connectionTitle, status: connectionStatusText, statusColor: connectionStatusColor) {
                 VStack(spacing: 8) {
                     ForEach(connectionFindings.prefix(4)) { finding in
                         connectionRow(finding)
@@ -700,9 +713,10 @@ struct JunimoSurfaceView: View {
 
     private var localizedThreadSummary: String {
         let active = coordinator.codexMonitor.activeThreadCount
-        let open = coordinator.codexMonitor.openThreadCount
-        let visible = coordinator.codexMonitor.threads.count
-        return "\(active) \(copy.activeThreadUnit)，\(open) \(copy.openThreadUnit)，\(visible) \(copy.visibleThreadUnit)"
+        guard active > 0 else {
+            return copy.noLiveThread
+        }
+        return "\(active) \(copy.activeThreadUnit)"
     }
 
     private var codexReviewSummary: String {
@@ -749,11 +763,27 @@ struct JunimoSurfaceView: View {
     }
 
     private var connectionFindings: [CodexIntegrationFinding] {
-        coordinator.codexMonitor.findings
+        let primary = coordinator.codexMonitor.findings.filter { codexDisplayedFindingIDs.contains($0.id) }
+        return primary.isEmpty ? coordinator.codexMonitor.findings : primary
     }
 
     private var connectionReadyCount: Int {
-        connectionFindings.filter { $0.status == .available }.count
+        connectionFindings.filter { finding in
+            codexDataSourceFindingIDs.contains(finding.id) && finding.status == .available
+        }.count
+    }
+
+    private var connectionStatusText: String {
+        let sourceCount = connectionFindings.filter { codexDataSourceFindingIDs.contains($0.id) }.count
+        guard sourceCount > 0 else {
+            return copy.noDataSource
+        }
+        return "\(connectionReadyCount)/\(sourceCount)"
+    }
+
+    private var connectionStatusColor: Color {
+        let sourceCount = connectionFindings.filter { codexDataSourceFindingIDs.contains($0.id) }.count
+        return sourceCount > 0 && connectionReadyCount == sourceCount ? .green : .yellow
     }
 
     private var latestActivityTitle: String {
@@ -996,7 +1026,7 @@ struct JunimoSurfaceCopy {
     let noteTitle = "便签 / 待办"
     let captureTitle = "截图脚本"
     let logsTitle = "诊断日志"
-    let connectionTitle = "连接情况"
+    let connectionTitle = "数据来源"
     let reminderTitle = "提醒"
     let todoPreviewTitle = "待办预览"
     let captureManualTitle = "手动运行"
@@ -1034,6 +1064,7 @@ struct JunimoSurfaceCopy {
     let captureBoundaryDetail = "Junimo 只统计今天目录里的结果；截图采集需要你在终端手动运行脚本，权限归属于那个终端进程。"
 
     let noConnectionFindings = "还没有连接诊断信息"
+    let noLiveThread = "没有实时运行线程"
     let noReviewPending = "没有待确认结果"
     let focusReadyDetail = "启动一个 25 分钟专注计时"
     let focusNotificationDetail = "结束时会创建提醒"
@@ -1052,6 +1083,7 @@ struct JunimoSurfaceCopy {
     let activeThreadUnit = "个运行中"
     let openThreadUnit = "个打开"
     let visibleThreadUnit = "条可见"
+    let recentThreadRecordUnit = "条最近记录"
     let remainingSuffix = "可用"
     let pendingReminderUnit = "个待提醒"
     let todoOpenSuffix = "个未完成"
@@ -1062,6 +1094,7 @@ struct JunimoSurfaceCopy {
     let captureInvalidUnit = "无效/缺失"
     let captureHasData = "有数据"
     let captureNoData = "无数据"
+    let noDataSource = "无来源"
     let captureNoIndex = "没有索引"
     let endsAtPrefix = "预计结束"
     let hourWindow = "小时窗口"

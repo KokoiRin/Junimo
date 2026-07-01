@@ -21,18 +21,18 @@ public enum CodexStatusParser {
             findings.append(
                 CodexIntegrationFinding(
                     id: "cloud-list",
-                    title: "Cloud tasks",
+                    title: "云任务",
                     status: .available,
-                    detail: cloudThreads.isEmpty ? "No recent cloud tasks returned by codex cloud list." : "\(cloudThreads.count) recent cloud task\(cloudThreads.count == 1 ? "" : "s") loaded."
+                    detail: cloudThreads.isEmpty ? "codex cloud list 当前没有返回云任务。" : "已读取 \(cloudThreads.count) 个最近云任务。"
                 )
             )
         } else {
             findings.append(
                 CodexIntegrationFinding(
                     id: "cloud-list",
-                    title: "Cloud tasks",
+                    title: "云任务",
                     status: .degraded,
-                    detail: "codex cloud list --json did not return a usable task snapshot."
+                    detail: "codex cloud list --json 没有返回可用的任务快照。"
                 )
             )
         }
@@ -43,9 +43,9 @@ public enum CodexStatusParser {
             findings.append(
                 CodexIntegrationFinding(
                     id: "app-server-rate-limits",
-                    title: "Live quota",
+                    title: "实时配额",
                     status: .needsSetup,
-                    detail: "Next adapter should call account/rateLimits/read over codex app-server."
+                    detail: "需要通过 codex app-server 调用 account/rateLimits/read。"
                 )
             )
         }
@@ -72,23 +72,23 @@ public enum CodexStatusParser {
         findings.append(
             CodexIntegrationFinding(
                 id: "app-server-rate-limits",
-                title: "Live quota",
+                title: "实时配额",
                 status: usage == nil ? .degraded : .available,
-                detail: usage == nil ? jsonRPCErrorDetail(from: rateLimitResponse, fallback: "app-server did not return rate limits.") : "Loaded live account/rateLimits/read snapshot."
+                detail: usage == nil ? jsonRPCErrorDetail(from: rateLimitResponse, fallback: "app-server 没有返回 account/rateLimits/read。") : "已读取 account/rateLimits/read 实时配额。"
             )
         )
 
-        let threads = appServerThreads(from: threadListResponse?["result"] as? [String: Any], now: now)
+        let threadList = appServerThreadList(from: threadListResponse?["result"] as? [String: Any], now: now)
         findings.append(
             CodexIntegrationFinding(
                 id: "app-server-threads",
-                title: "Local threads",
+                title: "历史线程清单",
                 status: threadListResponse == nil ? .degraded : .available,
-                detail: threadListResponse == nil ? "app-server did not return thread/list." : "\(threads.count) local thread\(threads.count == 1 ? "" : "s") loaded."
+                detail: threadListResponse == nil ? "app-server 没有返回 thread/list。" : "已读取 \(threadList.rawCount) 条本地记录；\(threadList.ignoredHistoryCount) 条历史/未加载记录不计入当前任务。"
             )
         )
 
-        return CodexAppServerSnapshot(usage: usage, threads: threads, findings: findings)
+        return CodexAppServerSnapshot(usage: usage, threads: threadList.currentThreads, findings: findings)
     }
 
     public static func usageSnapshot(fromAppServerRateLimitsJSON json: String, now: Date = Date()) -> CodexUsageSnapshot? {
@@ -168,7 +168,7 @@ public enum CodexStatusParser {
                     id: "doctor",
                     title: "Codex diagnostics",
                     status: .degraded,
-                    detail: "codex doctor --json did not return a usable diagnostic snapshot."
+                    detail: "codex doctor --json 没有返回可用诊断快照。"
                 )
             ]
         }
@@ -181,34 +181,34 @@ public enum CodexStatusParser {
                 id: "doctor",
                 title: "Codex CLI",
                 status: doctorExitCode == 0 ? .available : .degraded,
-                detail: "Version \(version); doctor status \(overall)."
+                detail: "版本 \(version)；doctor 状态 \(overall)。"
             )
         )
 
         appendCheckFinding(
             id: "auth",
-            title: "Authentication",
+            title: "认证",
             checkID: "auth.credentials",
             doctor: doctor,
             into: &output
         )
         appendCheckFinding(
             id: "app-server",
-            title: "App server",
+            title: "App Server",
             checkID: "app_server.status",
             doctor: doctor,
             into: &output
         )
         appendCheckFinding(
             id: "thread-inventory",
-            title: "Thread inventory",
+            title: "线程清单",
             checkID: "state.rollout_db_parity",
             doctor: doctor,
             into: &output
         )
         appendCheckFinding(
             id: "network",
-            title: "Network",
+            title: "网络",
             checkID: "network.provider_reachability",
             doctor: doctor,
             into: &output
@@ -260,12 +260,20 @@ public enum CodexStatusParser {
         }
     }
 
-    /// 业务语义：app-server 线程要先完整进入生命周期归一化，不能在解析阶段截断。
-    private static func appServerThreads(from result: [String: Any]?, now: Date) -> [CodexThreadSummary] {
+    private struct CodexAppServerThreadList {
+        var currentThreads: [CodexThreadSummary]
+        var rawCount: Int
+        var ignoredHistoryCount: Int
+    }
+
+    /// 业务语义：thread/list 的 idle/notLoaded 代表历史清单，不进入当前任务状态；只有明确 active/terminal 参与 monitor。
+    private static func appServerThreadList(from result: [String: Any]?, now: Date) -> CodexAppServerThreadList {
         guard let threads = result?["data"] as? [[String: Any]] else {
-            return []
+            return CodexAppServerThreadList(currentThreads: [], rawCount: 0, ignoredHistoryCount: 0)
         }
-        return threads.map { thread in
+        var currentThreads: [CodexThreadSummary] = []
+        var ignoredHistoryCount = 0
+        for thread in threads {
             let id = string(thread["id"]) ?? UUID().uuidString
             let name = string(thread["name"])
             let preview = string(thread["preview"])
@@ -274,14 +282,24 @@ public enum CodexStatusParser {
             let status = threadStatus(fromAppServerStatus: thread["status"] as? [String: Any])
             let updatedAt = unixDate(thread["updatedAt"]) ?? now
 
-            return CodexThreadSummary(
+            guard status.isActive || status.isTerminal else {
+                ignoredHistoryCount += 1
+                continue
+            }
+
+            currentThreads.append(CodexThreadSummary(
                 id: "local:\(id)",
                 title: threadTitle(name: name, preview: preview, id: id),
                 status: status,
                 detail: "\(provider): \(cwd ?? "Codex local thread")",
                 updatedAt: updatedAt
-            )
+            ))
         }
+        return CodexAppServerThreadList(
+            currentThreads: currentThreads,
+            rawCount: threads.count,
+            ignoredHistoryCount: ignoredHistoryCount
+        )
     }
 
     private static func threadTitle(name: String?, preview: String?, id: String) -> String {
@@ -294,7 +312,7 @@ public enum CodexStatusParser {
         return "Codex \(id.prefix(8))"
     }
 
-    /// 业务语义：notLoaded/idle 是非终态 open work，不能压成 quota-only idle。
+    /// 业务语义：notLoaded/idle 只说明本地历史线程未加载，不代表当前运行任务或终态。
     private static func threadStatus(fromAppServerStatus object: [String: Any]?) -> CodexThreadStatus {
         let type = string(object?["type"]) ?? "idle"
         switch type {

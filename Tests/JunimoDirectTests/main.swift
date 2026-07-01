@@ -459,12 +459,13 @@ let appServerSnapshot = appServerProvider.loadSnapshot(now: Date(timeIntervalSin
 expect(appServerSnapshot.usage.status == .available, "App-server provider should prefer live quota")
 expect(appServerSnapshot.usage.summaryText == "28% left", "App-server provider should expose remaining quota")
 expect(appServerSnapshot.threads.contains(where: { $0.id == "local:thread_local_1" && $0.status == .waiting }), "App-server provider should load local waiting thread")
-expect(appServerSnapshot.threads.contains(where: { $0.id == "local:thread_local_2" && $0.status == .open }), "App-server provider should keep notLoaded local threads as open work")
-expect(appServerSnapshot.threads.contains(where: { $0.id == "local:thread_local_3" && $0.status == .open }), "App-server provider should keep idle non-archived local threads as open work")
-expect(appServerSnapshot.threads.contains(where: { $0.id == "local:thread_local_4" && $0.status == .open }), "App-server provider should keep unknown non-terminal statuses as open work")
-expect(appServerSnapshot.openThreadCount == 3, "App-server provider should count open local threads before UI truncation")
+expect(!appServerSnapshot.threads.contains(where: { $0.id == "local:thread_local_2" }), "App-server provider should not promote notLoaded local history into current monitor threads")
+expect(!appServerSnapshot.threads.contains(where: { $0.id == "local:thread_local_3" }), "App-server provider should not promote idle local history into current monitor threads")
+expect(!appServerSnapshot.threads.contains(where: { $0.id == "local:thread_local_4" }), "App-server provider should not promote unknown local history into current monitor threads")
+expect(appServerSnapshot.openThreadCount == 0, "App-server provider should keep open local history out of current monitor counts")
 expect(appServerSnapshot.threads.contains(where: { $0.id == "cloud:task_1" && $0.status == .running }), "App-server provider should keep cloud running task")
 expect(appServerSnapshot.findings.contains(where: { $0.id == "app-server-rate-limits" && $0.status == .available }), "App-server quota finding should be available")
+expect(appServerSnapshot.findings.contains(where: { $0.id == "app-server-threads" && $0.detail.contains("3 条历史") }), "App-server thread finding should describe ignored local history")
 
 let completedWithOpenCoordinator = TaskCoordinator(now: codexStart)
 completedWithOpenCoordinator.refreshCodexMonitor(
@@ -491,7 +492,7 @@ completedWithOpenCoordinator.applyCodexRealtimeEvent(
     now: codexStart.addingTimeInterval(5)
 )
 completedWithOpenCoordinator.acknowledgeLatestCodexReview()
-expect(completedWithOpenCoordinator.codexCollapsedStatusText == "Codex open 1", "Collapsed status should show remaining open Codex work after a different thread completes")
+expect(completedWithOpenCoordinator.codexCollapsedStatusText == "Needs setup", "Collapsed status should fall back to quota instead of treating open history as active work")
 
 let manyThreads = (0..<12).map { index in
     CodexThreadSummary(
@@ -513,8 +514,20 @@ truncationCoordinator.refreshCodexMonitor(
 )
 expect(truncationCoordinator.codexMonitor.threads.count == 8, "Visible Codex thread list should remain bounded")
 expect(truncationCoordinator.codexMonitor.openThreadCount == 1, "Open thread count should be computed before visible list truncation")
-expect(truncationCoordinator.codexCollapsedStatusText == "Codex open 1", "Collapsed status should include open work even when it is older than the visible list")
+expect(truncationCoordinator.codexCollapsedStatusText == "Needs setup", "Collapsed status should not promote open history over quota text")
 expect(appServerSnapshot.findings.contains(where: { $0.id == "app-server-threads" && $0.status == .available }), "App-server thread finding should be available")
+
+truncationCoordinator.refreshCodexMonitor(
+    CodexMonitorSnapshot(
+        usage: truncationCoordinator.codexMonitor.usage,
+        threads: [],
+        findings: truncationCoordinator.codexMonitor.findings,
+        refreshedAt: codexStart.addingTimeInterval(10)
+    ),
+    now: codexStart.addingTimeInterval(10)
+)
+expect(truncationCoordinator.codexMonitor.openThreadCount == 0, "Snapshot absence should drop stale open thread history from current monitor counts")
+expect(truncationCoordinator.codexMonitor.threads.isEmpty, "Snapshot absence should not retain stale open threads as visible current state")
 
 let realtimeJSONL = """
 {"method":"account/rateLimitsUpdated","params":{"rateLimits":{"planType":"plus","primary":{"usedPercent":64,"resetsAt":1800000600,"windowDurationMins":300},"secondary":{"usedPercent":25,"windowDurationMins":10080},"credits":{"hasCredits":true,"unlimited":false,"balance":"$4.20"}}}}

@@ -15,11 +15,12 @@ The system SHALL normalize Codex source observations into explicit thread lifecy
 
 #### Scenario: App-server not loaded thread
 - **WHEN** app-server reports a non-archived thread with `status.type` of `notLoaded`
-- **THEN** Junimo marks that thread open rather than completed, failed, or idle quota-only state
+- **THEN** Junimo treats that record as diagnostic local history rather than current running/waiting work
+- **AND** Junimo does not mark it completed or failed
 
 #### Scenario: Unknown app-server status
 - **WHEN** app-server reports an unknown non-terminal status
-- **THEN** Junimo keeps the thread visible as open or degraded instead of treating it as completed
+- **THEN** Junimo treats that record as diagnostic local history or degraded source information instead of treating it as completed
 
 ### Requirement: Explicit terminal transitions
 The system SHALL create Codex completion or failure review items only from explicit terminal lifecycle transitions.
@@ -36,17 +37,21 @@ The system SHALL create Codex completion or failure review items only from expli
 - **WHEN** a later snapshot omits a previously active Codex thread
 - **THEN** Junimo does not create a completion review from the omission alone
 
-### Requirement: Open work display priority
-The system SHALL keep Codex open-work state visible before falling back to quota text.
+### Requirement: Collapsed status only promotes explicit current work
+The system SHALL reserve collapsed island Codex status for pending reviews, explicit running/waiting work, or quota text.
 
-#### Scenario: No review and no active thread but open work remains
+#### Scenario: No review and no active thread but open history remains
 - **WHEN** there are no pending review items and no running or waiting threads
-- **AND** at least one non-terminal open Codex thread remains
-- **THEN** the collapsed island status shows an open-work cue instead of quota text
+- **AND** at least one non-terminal open Codex thread remains from a local inventory or thread-list observation
+- **THEN** the collapsed island status shows Codex quota summary text instead of an open-work cue
 
 #### Scenario: No Codex work remains
 - **WHEN** there are no pending review items, no running or waiting threads, and no open Codex threads
 - **THEN** the collapsed island status shows Codex quota summary text
+
+#### Scenario: Snapshot omits open history
+- **WHEN** a later snapshot omits a previously open Codex thread
+- **THEN** Junimo drops that open thread from current monitor counts unless a later source observes it again
 
 ### Requirement: Lifecycle-aware thread truncation
 The system SHALL compute lifecycle counts and status priority before truncating the visible thread list.
@@ -54,4 +59,4 @@ The system SHALL compute lifecycle counts and status priority before truncating 
 #### Scenario: Older active or open thread exists beyond recent display limit
 - **WHEN** a Codex source returns more threads than the visible UI list can show
 - **AND** an active or open thread appears beyond the visible limit by update time
-- **THEN** Junimo still includes that thread in active/open counts and collapsed status priority
+- **THEN** Junimo still includes that thread in active/open counts before truncating the visible list

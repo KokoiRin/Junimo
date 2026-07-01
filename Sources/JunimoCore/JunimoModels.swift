@@ -592,21 +592,21 @@ public struct CodexMonitorSnapshot: Equatable {
             findings: [
                 CodexIntegrationFinding(
                     id: "app-server",
-                    title: "Live local threads",
+                    title: "实时本地线程",
                     status: .needsSetup,
-                    detail: "Connect to codex app-server, then call thread/list and listen for turn/thread notifications."
+                    detail: "连接 codex app-server 后读取 thread/list，并监听 turn/thread 通知。"
                 ),
                 CodexIntegrationFinding(
                     id: "exec-json",
-                    title: "Junimo-launched runs",
+                    title: "Junimo 启动的运行",
                     status: .available,
-                    detail: "codex exec --json emits turn.completed and turn.failed for completion alerts."
+                    detail: "codex exec --json 会输出 turn.completed / turn.failed，用于完成提醒。"
                 ),
                 CodexIntegrationFinding(
                     id: "cloud-list",
-                    title: "Cloud tasks",
+                    title: "云任务",
                     status: .available,
-                    detail: "codex cloud list --json returns recent cloud task status when authenticated."
+                    detail: "登录后可通过 codex cloud list --json 读取最近云任务。"
                 ),
                 CodexIntegrationFinding(
                     id: "analytics",
