@@ -242,13 +242,15 @@ stoppedRuntime.stop()
 
 // 业务语义：主面板采用模块分页，用户只关注当前模块，不再把所有功能挤在一页。
 let panelPages = JunimoPanelPage.allCases.map(\.rawValue)
-expect(panelPages == ["codex", "focus", "note", "capture"], "Main panel should expose stable module pages")
+expect(panelPages == ["codex", "focus", "note", "capture", "logs"], "Main panel should expose stable module pages")
 
 let panelCopy = JunimoSurfaceCopy.simplifiedChinese
 expect(panelCopy.pageTitle(.codex) == "Codex", "Main panel should keep Codex as a page label")
 expect(panelCopy.pageTitle(.focus) == "专注", "Main panel should expose the focus page in Chinese")
 expect(panelCopy.pageTitle(.note) == "便签", "Main panel should expose the note page in Chinese")
 expect(panelCopy.pageTitle(.capture) == "截图", "Main panel should expose the capture page in Chinese")
+expect(panelCopy.pageTitle(.logs) == "日志", "Main panel should expose the diagnostics log page in Chinese")
+expect(panelCopy.readableValueFontSize >= 13, "Main panel value text should use a larger readable type scale")
 expect(panelCopy.headerSubtitle("Swift/AppKit shell").hasPrefix("本地控制台"), "Main panel copy should come from Chinese copy bundle")
 expect(panelCopy.captureBoundaryDetail.contains("独立后台脚本"), "Capture page should document that screenshot capture is detached")
 expect(panelCopy.statusNeedsSetup == "实时配额未连接", "Needs-setup Codex status should explain the missing live quota connection")

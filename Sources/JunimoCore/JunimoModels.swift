@@ -70,6 +70,47 @@ public struct ActivityEntry: Identifiable, Equatable {
     }
 }
 
+public enum DiagnosticLogLevel: String, CaseIterable, Equatable {
+    case info
+    case debug
+    case warning
+    case error
+}
+
+public enum DiagnosticLogSource: String, CaseIterable, Equatable {
+    case app
+    case codex
+    case focus
+    case note
+    case capture
+    case debug
+}
+
+public struct DiagnosticLogEntry: Identifiable, Equatable {
+    public let id: UUID
+    public var level: DiagnosticLogLevel
+    public var source: DiagnosticLogSource
+    public var title: String
+    public var detail: String
+    public var date: Date
+
+    public init(
+        id: UUID = UUID(),
+        level: DiagnosticLogLevel,
+        source: DiagnosticLogSource,
+        title: String,
+        detail: String,
+        date: Date
+    ) {
+        self.id = id
+        self.level = level
+        self.source = source
+        self.title = title
+        self.detail = detail
+        self.date = date
+    }
+}
+
 public enum ConsoleAccent: String, CaseIterable, Identifiable, Equatable {
     case mint
     case amber
@@ -119,7 +160,7 @@ public struct ConsolePreferences: Equatable {
         accent: ConsoleAccent = .mint,
         density: ConsoleDensity = .comfortable,
         expandedWidth: Int = 760,
-        expandedHeight: Int = 340,
+        expandedHeight: Int = 380,
         topOffset: Int = 6
     ) {
         self.accent = accent

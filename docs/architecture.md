@@ -23,9 +23,9 @@ modules with explicit state owners and test seams:
    delivery, Codex monitoring, and launch health diagnostics.
 3. Feature stores: own product state, reduce user intents and adapter events,
    and expose public snapshots. Initial feature boundaries are Console, Codex,
-   Pomodoro, Corner Note, Preferences, and Sessions. Console, Codex, Pomodoro,
-   Corner Note, and Preferences already have explicit Swift feature owners
-   behind the coordinator compatibility facade.
+   Pomodoro, Corner Note, Preferences, Diagnostics, and Sessions. Console,
+   Codex, Pomodoro, Corner Note, Preferences, and Diagnostics already have
+   explicit Swift feature owners behind the coordinator compatibility facade.
 4. Adapters: own process, filesystem, OS, notification, and protocol I/O. Codex
    app-server, Codex CLI/exec streams, notification delivery, and persistence
    belong here.
@@ -130,9 +130,15 @@ For real menu bar presence, Junimo also installs an `NSStatusItem` with Show and
 The expanded panel is a Chinese module surface instead of a single dense
 dashboard. `JunimoSurfaceView` owns only presentation state for the selected
 page; feature state still comes from `TaskCoordinator` projections. The current
-tabs are Codex, Focus, Note, and Screenshot. This keeps each module readable and
-prevents detached capabilities, such as the background screenshot script, from
-looking like app-owned controls.
+tabs are Codex, Focus, Note, Screenshot, and Logs. This keeps each module
+readable and prevents detached capabilities, such as the background screenshot
+script, from looking like app-owned controls.
+
+The Logs page reads `TaskCoordinator.diagnosticLogs`, which is owned by
+`DiagnosticLogFeature`. It is an in-memory, bounded troubleshooting timeline
+for Junimo-owned behavior and manual debug probes. It is intentionally separate
+from `recentActivities`: activities describe product work; diagnostic logs help
+answer what the app observed or what intent was routed.
 
 Visible labels are centralized in `JunimoSurfaceCopy.simplifiedChinese`. Future
 language switching should add another copy bundle or locale selector rather
@@ -149,6 +155,8 @@ The tool should grow through feature modules and adapters:
   Pomodoro, and future features through one queue owner; app shell delivery
   remains in `ReminderDelivery`.
 - Pomodoro feature: focus/break modes, completion actions, and project/session association.
+- Diagnostic log feature: persistent export, filtering, and external adapter
+  log ingestion after the in-memory troubleshooting timeline proves useful.
 - Project profiles: per-repository shortcuts, recent tasks, preferred agents, and safe working directories.
 - Command palette: searchable actions that can be triggered from the expanded console and routed as intents.
 - Session timeline: richer activity entries with status, duration, adapter, and failure reason.

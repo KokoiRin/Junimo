@@ -101,6 +101,21 @@ expect(consoleFeature.agents.first(where: { $0.id == "codex" })?.status == .runn
 expect(consoleFeature.recentActivities.first?.title == "Started Codex", "ConsoleFeature should refresh recent activity")
 expect(consoleFeature.sessions.first?.status == .running, "ConsoleFeature should refresh sessions after action")
 
+var logFeature = DiagnosticLogFeature(now: Date(timeIntervalSince1970: 96), limit: 3)
+for index in 0..<5 {
+    logFeature.record(
+        level: .info,
+        source: .app,
+        title: "事件 \(index)",
+        detail: "bounded log test",
+        date: Date(timeIntervalSince1970: 97 + TimeInterval(index))
+    )
+}
+// 业务语义：诊断日志是 bounded timeline，必须保留最新记录在前并裁掉旧记录。
+expect(logFeature.entries.count == 3, "DiagnosticLogFeature should keep bounded entries")
+expect(logFeature.entries.first?.title == "事件 4", "DiagnosticLogFeature should keep newest entry first")
+expect(!logFeature.entries.contains { $0.title == "Junimo 已启动" }, "DiagnosticLogFeature should discard oldest entries when over limit")
+
 var preferencesFeature = PreferencesFeature(core: SwiftFallbackCore())
 // 业务语义：PreferencesFeature 是 UI preferences/theme 的 Swift 投影 owner，初始化必须来自 core snapshot。
 expect(preferencesFeature.preferences.accent == .mint, "PreferencesFeature should expose default accent")
@@ -115,7 +130,7 @@ expect(preferencesFeature.theme.accent == .amber, "PreferencesFeature theme shou
 let actionCoordinator = TaskCoordinator(now: Date(timeIntervalSince1970: 100))
 expect(actionCoordinator.preferences.accent == .mint, "Preferences should default from C++ core")
 expect(actionCoordinator.preferences.expandedWidth == 760, "Comfortable panel width should come from C++ core")
-expect(actionCoordinator.preferences.expandedHeight == 340, "Comfortable panel height should come from C++ core")
+expect(actionCoordinator.preferences.expandedHeight == 380, "Comfortable panel height should come from C++ core")
 actionCoordinator.setDensity(.compact)
 expect(actionCoordinator.preferences.density == .compact, "Density should update through C++ core")
 expect(actionCoordinator.preferences.expandedWidth == 700, "Compact panel width should come from C++ core")
@@ -137,6 +152,15 @@ actionCoordinator.performCommand(id: "pomodoro-10s", now: Date(timeIntervalSince
 expect(actionCoordinator.activePomodoro != nil, "Command launch should start Pomodoro")
 expect(actionCoordinator.sessions.first?.title == "Pomodoro focus", "Pomodoro command should create session")
 actionCoordinator.cancelPomodoro(now: Date(timeIntervalSince1970: 102))
+
+// 业务语义：诊断日志是独立于 activity feed 的排查时间线，用户操作和手动调试探针都应该进入同一日志投影。
+expect(actionCoordinator.diagnosticLogs.first?.source == .focus, "Pomodoro command should record a focus diagnostic log")
+actionCoordinator.pointerEntered(at: Date(timeIntervalSince1970: 103))
+actionCoordinator.recordDebugProbe(now: Date(timeIntervalSince1970: 104))
+expect(actionCoordinator.diagnosticLogs.first?.level == .debug, "Debug probe should write a debug-level log")
+expect(actionCoordinator.diagnosticLogs.first?.source == .debug, "Debug probe should use the Debug source")
+expect(actionCoordinator.diagnosticLogs.first?.title == "调试探针", "Debug probe title should be user-readable")
+expect(actionCoordinator.diagnosticLogs.contains { $0.source == .app && $0.title == "主面板展开" }, "Panel expansion should record an app diagnostic log")
 
 actionCoordinator.performAction(id: "codex")
 expect(actionCoordinator.agents.first(where: { $0.id == "codex" })?.status == .running, "Codex agent should be running")

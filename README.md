@@ -36,8 +36,10 @@ system log lines into a desktop folder.
 - Mock Codex/Hermes agent status.
 - CLI/app-server-backed Codex monitor shell for quota source, known/cloud threads, realtime app-server events, exec JSONL lifecycle events, completion alerts, and persistent review attention.
 - Chinese expanded console with module tabs for Codex, Focus, Note, and
-  Screenshot script state, backed by a centralized UI copy table for future
-  language switching.
+  Screenshot script state, and Logs, backed by a centralized UI copy table for
+  future language switching.
+- In-app diagnostic log timeline for Junimo-owned behavior, with a Logs page
+  and a local debug probe action for checking the troubleshooting path.
 - Adapter-mediated action clicks through `TaskCoordinator`.
 - Recent activity recording.
 - Basic accent theme control.

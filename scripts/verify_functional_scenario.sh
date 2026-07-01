@@ -59,7 +59,7 @@ require(console.get("latestActivity") == "Pomodoro started", "scenario latest ac
 preferences = console.get("preferences", {})
 require(preferences.get("density") == "comfortable", "scenario should keep the cleaned main panel density")
 require(preferences.get("expandedWidth") == 760, "scenario should keep the cleaned main panel width")
-require(preferences.get("expandedHeight") == 340, "scenario should keep the cleaned main panel height")
+require(preferences.get("expandedHeight") == 380, "scenario should keep the readable main panel height")
 codex = data.get("codex", {})
 require(bool(codex.get("collapsedStatus")), "scenario missing Codex collapsed status")
 threads = codex.get("threads", {})

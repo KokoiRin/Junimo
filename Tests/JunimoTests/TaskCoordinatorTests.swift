@@ -30,7 +30,7 @@ final class TaskCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.preferences.accent, .mint)
         XCTAssertEqual(coordinator.preferences.expandedWidth, 760)
-        XCTAssertEqual(coordinator.preferences.expandedHeight, 340)
+        XCTAssertEqual(coordinator.preferences.expandedHeight, 380)
 
         coordinator.setDensity(.compact)
 
@@ -71,6 +71,24 @@ final class TaskCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.recentActivities.first?.title, "Started Codex")
         XCTAssertEqual(coordinator.recentActivities.first?.detail, "C++ core marked Codex as running")
         XCTAssertEqual(coordinator.sessions.first?.status, .running)
+    }
+
+    func testDiagnosticLogsRecordUserBehaviorAndDebugProbe() {
+        let start = Date(timeIntervalSince1970: 110)
+        let coordinator = TaskCoordinator(now: start)
+
+        XCTAssertEqual(coordinator.diagnosticLogs.first?.source, .app)
+        XCTAssertEqual(coordinator.diagnosticLogs.first?.title, "Junimo 已启动")
+
+        coordinator.pointerEntered(at: start.addingTimeInterval(1))
+        coordinator.startPomodoro(duration: 60, now: start.addingTimeInterval(2))
+        coordinator.recordDebugProbe(now: start.addingTimeInterval(3))
+
+        XCTAssertEqual(coordinator.diagnosticLogs.first?.level, .debug)
+        XCTAssertEqual(coordinator.diagnosticLogs.first?.source, .debug)
+        XCTAssertEqual(coordinator.diagnosticLogs.first?.title, "调试探针")
+        XCTAssertTrue(coordinator.diagnosticLogs.contains { $0.source == .focus && $0.title == "专注开始" })
+        XCTAssertTrue(coordinator.diagnosticLogs.contains { $0.source == .app && $0.title == "主面板展开" })
     }
 
     func testCodexMonitorDocumentsSupportedStatusSources() {

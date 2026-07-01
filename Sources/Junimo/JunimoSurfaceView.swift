@@ -7,6 +7,7 @@ enum JunimoPanelPage: String, CaseIterable, Identifiable {
     case focus
     case note
     case capture
+    case logs
 
     var id: String { rawValue }
 }
@@ -216,13 +217,13 @@ struct JunimoSurfaceView: View {
 
                 HStack(alignment: .top, spacing: 14) {
                     pageTabs
-                        .frame(width: 118)
+                        .frame(width: 126)
 
                     selectedPageContent
                         .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, 24)
-                .frame(height: 184)
+                .frame(height: 220)
 
                 Spacer(minLength: 0)
 
@@ -290,33 +291,37 @@ struct JunimoSurfaceView: View {
     private var pageTabs: some View {
         VStack(spacing: 8) {
             ForEach(JunimoPanelPage.allCases) { page in
-                Button {
-                    selectedPage = page
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: copy.pageIcon(page))
-                            .font(.system(size: 11, weight: .semibold))
-                        Text(copy.pageTitle(page))
-                            .font(.system(size: 11, weight: .semibold))
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: 36)
-                    .foregroundStyle(selectedPage == page ? Color.black.opacity(0.86) : Color.white.opacity(0.72))
-                    .background(
-                        selectedPage == page ? accentColor : Color.white.opacity(0.075),
-                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.white.opacity(selectedPage == page ? 0.0 : 0.08), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                .help(copy.pageHelp(page))
+                pageTabButton(page)
             }
         }
+    }
+
+    private func pageTabButton(_ page: JunimoPanelPage) -> some View {
+        Button {
+            selectedPage = page
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: copy.pageIcon(page))
+                    .font(.system(size: 11, weight: .semibold))
+                Text(copy.pageTitle(page))
+                    .font(.system(size: copy.readableLabelFontSize, weight: .semibold))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 38)
+            .foregroundStyle(selectedPage == page ? Color.black.opacity(0.86) : Color.white.opacity(0.72))
+            .background(
+                selectedPage == page ? accentColor : Color.white.opacity(0.075),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.white.opacity(selectedPage == page ? 0.0 : 0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(copy.pageHelp(page))
     }
 
     @ViewBuilder
@@ -330,6 +335,8 @@ struct JunimoSurfaceView: View {
             notePage
         case .capture:
             capturePage
+        case .logs:
+            logsPage
         }
     }
 
@@ -365,7 +372,7 @@ struct JunimoSurfaceView: View {
                 }
             }
         }
-        .frame(height: 184)
+        .frame(height: 220)
     }
 
     private var focusPage: some View {
@@ -373,13 +380,13 @@ struct JunimoSurfaceView: View {
             modulePanel(title: copy.focusTitle, status: coordinator.activePomodoro == nil ? copy.ready : copy.active, statusColor: coordinator.activePomodoro == nil ? accentColor : .yellow) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(focusPrimaryText)
-                        .font(.system(size: 30, weight: .semibold, design: .rounded))
+                        .font(.system(size: 34, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.white.opacity(0.92))
                         .lineLimit(1)
 
                     Text(focusCapabilityDetail)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: copy.readableValueFontSize, weight: .medium))
                         .foregroundStyle(.white.opacity(0.54))
                         .lineLimit(2)
 
@@ -403,7 +410,7 @@ struct JunimoSurfaceView: View {
                 }
             }
         }
-        .frame(height: 184)
+        .frame(height: 220)
     }
 
     private var notePage: some View {
@@ -433,7 +440,7 @@ struct JunimoSurfaceView: View {
                 }
             }
         }
-        .frame(height: 184)
+        .frame(height: 220)
     }
 
     private var capturePage: some View {
@@ -449,13 +456,43 @@ struct JunimoSurfaceView: View {
 
             modulePanel(title: copy.captureBoundaryTitle, status: copy.detached, statusColor: .gray) {
                 Text(copy.captureBoundaryDetail)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: copy.readableValueFontSize, weight: .medium))
                     .foregroundStyle(.white.opacity(0.56))
                     .lineLimit(5)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .frame(height: 184)
+        .frame(height: 220)
+    }
+
+    private var logsPage: some View {
+        HStack(alignment: .top, spacing: 12) {
+            modulePanel(title: copy.logsTitle, status: "\(coordinator.diagnosticLogs.count)", statusColor: .purple) {
+                VStack(alignment: .leading, spacing: 11) {
+                    infoRow(copy.latestLogLabel, latestDiagnosticSummary)
+                    infoRow(copy.logCountLabel, "\(coordinator.diagnosticLogs.count) \(copy.logCountSuffix)")
+                    cardActionButton(title: copy.writeDebugProbe, systemImage: "stethoscope", help: copy.writeDebugProbeHelp) {
+                        coordinator.recordDebugProbe()
+                    }
+                }
+            }
+            .frame(width: 332)
+
+            modulePanel(title: copy.logTimelineTitle, status: copy.debugReady, statusColor: .purple) {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(coordinator.diagnosticLogs.prefix(4))) { entry in
+                        diagnosticLogRow(entry)
+                    }
+
+                    if coordinator.diagnosticLogs.isEmpty {
+                        Text(copy.noLogs)
+                            .font(.system(size: copy.readableValueFontSize, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.50))
+                    }
+                }
+            }
+        }
+        .frame(height: 220)
     }
 
     private func modulePanel<Content: View>(
@@ -467,7 +504,7 @@ struct JunimoSurfaceView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: copy.panelTitleFontSize, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(1)
 
@@ -489,12 +526,12 @@ struct JunimoSurfaceView: View {
     private func infoRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(label)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: copy.readableLabelFontSize, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.40))
-                .frame(width: 56, alignment: .leading)
+                .frame(width: 64, alignment: .leading)
 
             Text(value)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: copy.readableValueFontSize, weight: .medium))
                 .foregroundStyle(.white.opacity(0.72))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -518,16 +555,16 @@ struct JunimoSurfaceView: View {
     private var latestActivityStrip: some View {
         HStack(spacing: 8) {
             Text(copy.latestTitle)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: copy.readableLabelFontSize, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.42))
 
             Text(latestActivityTitle)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: copy.readableValueFontSize, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.70))
                 .lineLimit(1)
 
             Text(latestActivityDetail)
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: copy.readableLabelFontSize, weight: .medium))
                 .foregroundStyle(.white.opacity(0.42))
                 .lineLimit(1)
 
@@ -545,7 +582,7 @@ struct JunimoSurfaceView: View {
                 Image(systemName: systemImage)
                     .font(.system(size: 10, weight: .bold))
                 Text(title)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: copy.readableLabelFontSize, weight: .semibold))
             }
             .padding(.horizontal, 10)
             .frame(height: 26)
@@ -563,7 +600,7 @@ struct JunimoSurfaceView: View {
                 .fill(color)
                 .frame(width: 6, height: 6)
             Text(text)
-                .font(.system(size: 9, weight: .bold))
+                .font(.system(size: 10, weight: .bold))
                 .lineLimit(1)
         }
         .foregroundStyle(color)
@@ -582,11 +619,11 @@ struct JunimoSurfaceView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(localizedFindingTitle(finding))
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: copy.readableLabelFontSize, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.76))
                     .lineLimit(1)
                 Text(localizedStatus(finding.status))
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.42))
                     .lineLimit(1)
             }
@@ -594,6 +631,36 @@ struct JunimoSurfaceView: View {
             Spacer(minLength: 0)
         }
         .help("\(localizedFindingTitle(finding)): \(localizedStatus(finding.status)). \(finding.detail)")
+    }
+
+    private func diagnosticLogRow(_ entry: DiagnosticLogEntry) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(logLevelLabel(entry.level))
+                .font(.system(size: 9, weight: .black, design: .rounded))
+                .foregroundStyle(.black.opacity(0.82))
+                .frame(width: 38, height: 18)
+                .background(logLevelColor(entry.level), in: Capsule())
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(entry.title)
+                        .font(.system(size: copy.readableLabelFontSize, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .lineLimit(1)
+                    Text(logSourceLabel(entry.source))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.42))
+                        .lineLimit(1)
+                }
+                Text(entry.detail)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.48))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .help("\(entry.date.formatted(date: .omitted, time: .standard)) · \(logSourceLabel(entry.source)) · \(entry.detail)")
     }
 
     private var codexQuotaDetail: String {
@@ -690,6 +757,13 @@ struct JunimoSurfaceView: View {
 
     private var latestActivityDetail: String {
         coordinator.recentActivities.first?.detail ?? copy.noActivityDetail
+    }
+
+    private var latestDiagnosticSummary: String {
+        guard let entry = coordinator.diagnosticLogs.first else {
+            return copy.noLogs
+        }
+        return "\(logSourceLabel(entry.source)) · \(entry.title)"
     }
 
     private func quotaWindowText(_ window: CodexUsageWindow?) -> String? {
@@ -820,6 +894,35 @@ struct JunimoSurfaceView: View {
         }
     }
 
+    private func logLevelLabel(_ level: DiagnosticLogLevel) -> String {
+        switch level {
+        case .info: "INFO"
+        case .debug: "DBG"
+        case .warning: "WARN"
+        case .error: "ERR"
+        }
+    }
+
+    private func logSourceLabel(_ source: DiagnosticLogSource) -> String {
+        switch source {
+        case .app: copy.logSourceApp
+        case .codex: "Codex"
+        case .focus: copy.logSourceFocus
+        case .note: copy.logSourceNote
+        case .capture: copy.logSourceCapture
+        case .debug: copy.logSourceDebug
+        }
+    }
+
+    private func logLevelColor(_ level: DiagnosticLogLevel) -> Color {
+        switch level {
+        case .info: accentColor
+        case .debug: .purple
+        case .warning: .orange
+        case .error: .red
+        }
+    }
+
     private func localizedFindingTitle(_ finding: CodexIntegrationFinding) -> String {
         copy.findingTitle(finding.id, fallback: finding.title)
     }
@@ -837,14 +940,20 @@ struct JunimoSurfaceView: View {
 struct JunimoSurfaceCopy {
     static let simplifiedChinese = JunimoSurfaceCopy()
 
+    let panelTitleFontSize: CGFloat = 15
+    let readableLabelFontSize: CGFloat = 12
+    let readableValueFontSize: CGFloat = 13
+
     let codexTitle = "Codex 状态"
     let focusTitle = "专注计时"
     let noteTitle = "便签 / 待办"
     let captureTitle = "截图脚本"
+    let logsTitle = "诊断日志"
     let connectionTitle = "连接情况"
     let reminderTitle = "提醒"
     let todoPreviewTitle = "待办预览"
     let captureBoundaryTitle = "边界"
+    let logTimelineTitle = "日志时间线"
     let latestTitle = "最近"
 
     let quotaLabel = "配额"
@@ -857,16 +966,20 @@ struct JunimoSurfaceCopy {
     let captureOwnerLabel = "归属"
     let capturePathLabel = "目录"
     let capturePolicyLabel = "策略"
+    let latestLogLabel = "最新"
+    let logCountLabel = "数量"
 
     let markRead = "确认"
     let startFocus = "开始"
     let stopFocus = "停止"
     let openNote = "打开"
+    let writeDebugProbe = "写入调试记录"
     let ready = "就绪"
     let active = "运行中"
     let open = "已打开"
     let externalScript = "外部脚本"
     let detached = "已拆出"
+    let debugReady = "可调试"
 
     let captureOwner = "LaunchAgent 后台脚本"
     let capturePolicy = "应用内不再请求截图权限"
@@ -881,6 +994,7 @@ struct JunimoSurfaceCopy {
     let noNoteText = "还没有便签内容"
     let noteSaved = "便签内容已保存"
     let noTodos = "还没有待办"
+    let noLogs = "还没有诊断日志"
     let noActivityTitle = "暂无活动"
     let noActivityDetail = "Junimo 正在等待下一次本地事件"
     let emptyTodoTitle = "未命名待办"
@@ -893,6 +1007,7 @@ struct JunimoSurfaceCopy {
     let pendingReminderUnit = "个待提醒"
     let todoOpenSuffix = "个未完成"
     let todoCountSuffix = "条"
+    let logCountSuffix = "条"
     let endsAtPrefix = "预计结束"
     let hourWindow = "小时窗口"
     let weekWindow = "本周窗口"
@@ -917,6 +1032,12 @@ struct JunimoSurfaceCopy {
     let sessionSucceeded = "完成"
     let sessionFailed = "失败"
 
+    let logSourceApp = "应用"
+    let logSourceFocus = "专注"
+    let logSourceNote = "便签"
+    let logSourceCapture = "截图"
+    let logSourceDebug = "调试"
+
     func headerSubtitle(_ stack: String) -> String {
         "本地控制台 · \(stack)"
     }
@@ -931,6 +1052,7 @@ struct JunimoSurfaceCopy {
         case .focus: "专注"
         case .note: "便签"
         case .capture: "截图"
+        case .logs: "日志"
         }
     }
 
@@ -940,6 +1062,7 @@ struct JunimoSurfaceCopy {
         case .focus: "timer"
         case .note: "checklist"
         case .capture: "camera.viewfinder"
+        case .logs: "list.bullet.rectangle"
         }
     }
 
@@ -949,6 +1072,7 @@ struct JunimoSurfaceCopy {
         case .focus: "查看和控制番茄钟"
         case .note: "打开便签和待办"
         case .capture: "查看独立截图脚本的边界"
+        case .logs: "查看 Junimo 行为日志和写入调试记录"
         }
     }
 
@@ -966,6 +1090,10 @@ struct JunimoSurfaceCopy {
 
     var openNoteHelp: String {
         "打开右下角便签和待办面板"
+    }
+
+    var writeDebugProbeHelp: String {
+        "写入一条本地调试日志，不触发外部权限"
     }
 
     func findingTitle(_ id: String, fallback: String) -> String {

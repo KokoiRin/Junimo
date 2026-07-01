@@ -20,6 +20,7 @@ public final class TaskCoordinator: ObservableObject {
     @Published public private(set) var commandResults: [CommandPaletteEntry]
     @Published public private(set) var projectProfile: ProjectProfileSummary
     @Published public private(set) var sessions: [ExecutionSessionSummary]
+    @Published public private(set) var diagnosticLogs: [DiagnosticLogEntry]
     @Published public private(set) var codexMonitor: CodexMonitorSnapshot
     @Published public private(set) var codexReviewItems: [CodexReviewItem]
     @Published public private(set) var preferences: ConsolePreferences
@@ -41,6 +42,7 @@ public final class TaskCoordinator: ObservableObject {
     public var cornerNoteExpansionDidChange: ((Bool) -> Void)?
 
     private var consoleFeature: ConsoleFeature
+    private var diagnosticLogFeature: DiagnosticLogFeature
     private var pomodoroFeature: PomodoroFeature
     private var codexFeature: CodexFeature
     private var cornerNoteFeature: CornerNoteFeature
@@ -55,6 +57,7 @@ public final class TaskCoordinator: ObservableObject {
     ) {
         let resolvedCore = core ?? SwiftFallbackCore()
         self.consoleFeature = ConsoleFeature(core: resolvedCore)
+        self.diagnosticLogFeature = DiagnosticLogFeature(now: now)
         self.pomodoroFeature = PomodoroFeature(core: resolvedCore)
         self.codexFeature = CodexFeature(now: now)
         self.cornerNoteFeature = CornerNoteFeature(core: resolvedCore)
@@ -68,6 +71,7 @@ public final class TaskCoordinator: ObservableObject {
         self.commandResults = consoleFeature.commandResults
         self.projectProfile = consoleFeature.projectProfile
         self.sessions = consoleFeature.sessions
+        self.diagnosticLogs = diagnosticLogFeature.entries
         self.codexMonitor = codexFeature.monitor
         self.codexReviewItems = codexFeature.reviewItems
         self.preferences = preferencesFeature.preferences
@@ -79,11 +83,31 @@ public final class TaskCoordinator: ObservableObject {
     }
 
     public func pointerEntered(at date: Date? = nil) {
+        guard !isExpanded else {
+            return
+        }
         isExpanded = true
+        recordDiagnosticLog(
+            level: .info,
+            source: .app,
+            title: "主面板展开",
+            detail: "用户进入顶部控制台热区",
+            date: date ?? nowProvider()
+        )
     }
 
     public func pointerExited(at date: Date? = nil) {
+        guard isExpanded else {
+            return
+        }
         isExpanded = false
+        recordDiagnosticLog(
+            level: .debug,
+            source: .app,
+            title: "主面板收起",
+            detail: "用户离开顶部控制台热区",
+            date: date ?? nowProvider()
+        )
     }
 
     public func advanceTime(to date: Date) {
@@ -95,6 +119,13 @@ public final class TaskCoordinator: ObservableObject {
         let date = now ?? nowProvider()
         let effects = consoleFeature.performAction(id: id, now: date)
         syncConsoleFeatureProjection()
+        recordDiagnosticLog(
+            level: .info,
+            source: logSource(forActionID: id),
+            title: "执行动作",
+            detail: id,
+            date: date
+        )
         consumeConsoleFeatureEffects(effects)
     }
 
@@ -113,6 +144,13 @@ public final class TaskCoordinator: ObservableObject {
     public func setAccent(_ accent: ConsoleAccent) {
         let updated = preferencesFeature.setAccent(accent)
         syncPreferencesFeatureProjection()
+        recordDiagnosticLog(
+            level: .debug,
+            source: .app,
+            title: "主题更新",
+            detail: accent.rawValue,
+            date: nowProvider()
+        )
         layoutPreferencesDidChange?(updated)
     }
 
@@ -120,6 +158,13 @@ public final class TaskCoordinator: ObservableObject {
     public func setDensity(_ density: ConsoleDensity) {
         let updated = preferencesFeature.setDensity(density)
         syncPreferencesFeatureProjection()
+        recordDiagnosticLog(
+            level: .debug,
+            source: .app,
+            title: "布局密度更新",
+            detail: density.rawValue,
+            date: nowProvider()
+        )
         layoutPreferencesDidChange?(updated)
     }
 
@@ -135,6 +180,13 @@ public final class TaskCoordinator: ObservableObject {
         pomodoroFeature.start(duration: duration, now: date)
         syncPomodoroFeatureProjection()
         refreshConsoleState()
+        recordDiagnosticLog(
+            level: .info,
+            source: .focus,
+            title: "专注开始",
+            detail: "\(Int(duration)) 秒",
+            date: date
+        )
     }
 
     /// 业务语义：coordinator 只转发取消 Pomodoro 意图，取消规则和活动记录仍由 core 处理。
@@ -143,6 +195,13 @@ public final class TaskCoordinator: ObservableObject {
         if pomodoroFeature.cancel(now: date) {
             syncPomodoroFeatureProjection()
             refreshConsoleState()
+            recordDiagnosticLog(
+                level: .info,
+                source: .focus,
+                title: "专注停止",
+                detail: "用户取消当前专注",
+                date: date
+            )
         }
     }
 
@@ -150,6 +209,13 @@ public final class TaskCoordinator: ObservableObject {
         objectWillChange.send()
         notificationOutbox.markDelivered(id: id)
         syncNotificationOutboxProjection()
+        recordDiagnosticLog(
+            level: .debug,
+            source: .app,
+            title: "通知已投递",
+            detail: id.uuidString,
+            date: nowProvider()
+        )
     }
 
     /// 业务语义：collapsed 刘海右侧优先显示待处理结果，其次显示活跃 Codex 状态，最后显示配额。
@@ -167,6 +233,13 @@ public final class TaskCoordinator: ObservableObject {
         objectWillChange.send()
         codexFeature.acknowledgeReview(id: id)
         syncCodexFeatureProjection()
+        recordDiagnosticLog(
+            level: .info,
+            source: .codex,
+            title: "Codex 结果已确认",
+            detail: id,
+            date: nowProvider()
+        )
     }
 
     /// 业务语义：collapsed 快捷确认由 Codex feature 决定最新 review 是哪一个。
@@ -174,11 +247,25 @@ public final class TaskCoordinator: ObservableObject {
         objectWillChange.send()
         codexFeature.acknowledgeLatestReview()
         syncCodexFeatureProjection()
+        recordDiagnosticLog(
+            level: .info,
+            source: .codex,
+            title: "最新 Codex 结果已确认",
+            detail: "用户清除了最近一条待确认结果",
+            date: nowProvider()
+        )
     }
 
     public func setCornerNoteExpanded(_ isExpanded: Bool) {
         cornerNoteFeature.setExpanded(isExpanded)
         syncCornerNoteFeatureProjection()
+        recordDiagnosticLog(
+            level: .debug,
+            source: .note,
+            title: isExpanded ? "便签打开" : "便签关闭",
+            detail: "右下角便签面板状态变化",
+            date: nowProvider()
+        )
     }
 
     public func updateCornerNoteText(_ text: String) {
@@ -189,6 +276,13 @@ public final class TaskCoordinator: ObservableObject {
     public func addCornerTodo(title: String = "") {
         cornerNoteFeature.addTodo(title: title)
         syncCornerNoteFeatureProjection()
+        recordDiagnosticLog(
+            level: .info,
+            source: .note,
+            title: "新增待办",
+            detail: title.isEmpty ? "空白待办" : title,
+            date: nowProvider()
+        )
     }
 
     public func updateCornerTodo(id: UUID, title: String) {
@@ -199,11 +293,31 @@ public final class TaskCoordinator: ObservableObject {
     public func toggleCornerTodo(id: UUID) {
         cornerNoteFeature.toggleTodo(id: id)
         syncCornerNoteFeatureProjection()
+        recordDiagnosticLog(
+            level: .info,
+            source: .note,
+            title: "待办状态切换",
+            detail: id.uuidString,
+            date: nowProvider()
+        )
     }
 
     public func removeCornerTodo(id: UUID) {
         cornerNoteFeature.removeTodo(id: id)
         syncCornerNoteFeatureProjection()
+        recordDiagnosticLog(
+            level: .info,
+            source: .note,
+            title: "删除待办",
+            detail: id.uuidString,
+            date: nowProvider()
+        )
+    }
+
+    /// 业务语义：手动调试探针只写入诊断日志，用于确认日志链路可用。
+    public func recordDebugProbe(now: Date? = nil) {
+        diagnosticLogFeature.recordDebugProbe(now: now ?? nowProvider())
+        syncDiagnosticLogProjection()
     }
 
     /// 业务语义：snapshot 只更新观测到的状态，不能把缺失线程伪造成完成。
@@ -218,6 +332,13 @@ public final class TaskCoordinator: ObservableObject {
         let date = now ?? nowProvider()
         let effects = codexFeature.refreshMonitor(snapshot, now: date)
         syncCodexFeatureProjection()
+        recordDiagnosticLog(
+            level: snapshot.usage.status == .available ? .info : .warning,
+            source: .codex,
+            title: "Codex 状态刷新",
+            detail: snapshot.usage.summaryText,
+            date: date
+        )
         consumeCodexFeatureEffects(effects)
     }
 
@@ -233,6 +354,13 @@ public final class TaskCoordinator: ObservableObject {
         let date = now ?? nowProvider()
         let effects = codexFeature.applyRealtimeEvent(event, now: date)
         syncCodexFeatureProjection()
+        recordDiagnosticLog(
+            level: .debug,
+            source: .codex,
+            title: "Codex 实时事件",
+            detail: "\(event)",
+            date: date
+        )
         consumeCodexFeatureEffects(effects)
     }
 
@@ -248,6 +376,13 @@ public final class TaskCoordinator: ObservableObject {
         let date = now ?? nowProvider()
         let effects = codexFeature.updateThread(id: id, title: title, status: status, detail: detail, now: date)
         syncCodexFeatureProjection()
+        recordDiagnosticLog(
+            level: status == .failed ? .error : .info,
+            source: .codex,
+            title: "Codex 线程更新",
+            detail: "\(title) · \(status.rawValue)",
+            date: date
+        )
         consumeCodexFeatureEffects(effects)
     }
 
@@ -261,6 +396,42 @@ public final class TaskCoordinator: ObservableObject {
         notificationOutbox.enqueue(contentsOf: effects.notifications)
         syncNotificationOutboxProjection()
         refreshConsoleState()
+        recordDiagnosticLog(
+            level: .info,
+            source: .focus,
+            title: "专注完成",
+            detail: effects.notifications.first?.title ?? "提醒已创建",
+            date: now
+        )
+    }
+
+    /// 业务语义：coordinator 暴露诊断日志投影，但不重新拥有日志裁剪规则。
+    private func syncDiagnosticLogProjection() {
+        diagnosticLogs = diagnosticLogFeature.entries
+    }
+
+    /// 业务语义：所有 coordinator 级日志写入统一经过 feature，保持日志顺序和上限一致。
+    private func recordDiagnosticLog(
+        level: DiagnosticLogLevel,
+        source: DiagnosticLogSource,
+        title: String,
+        detail: String,
+        date: Date
+    ) {
+        diagnosticLogFeature.record(level: level, source: source, title: title, detail: detail, date: date)
+        syncDiagnosticLogProjection()
+    }
+
+    /// 业务语义：action id 到日志来源的映射只用于诊断归类，不改变 action 执行语义。
+    private func logSource(forActionID id: String) -> DiagnosticLogSource {
+        switch id {
+        case "codex":
+            return .codex
+        case "pomodoro-25", "pomodoro-10s":
+            return .focus
+        default:
+            return .app
+        }
     }
 
     private func updateAgent(id: String, status: AgentStatus, detail: String) {
