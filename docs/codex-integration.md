@@ -100,7 +100,10 @@ visible in the island until the user acknowledges it.
   `CodexMonitorSnapshot`.
 - `ProcessCodexAppServerClient` starts `codex app-server --stdio`, performs the
   JSON-RPC initialize handshake, then reads `account/rateLimits/read` and
-  `thread/list` before terminating the short-lived process.
+  `thread/list` before terminating the short-lived process. The rate-limit
+  response can take more than 20 seconds on some Codex.app builds, so this
+  adapter waits for the required response IDs up to its timeout and force-kills
+  the short-lived app-server process if it ignores normal termination.
 - `ProcessCodexAppServerEventStream` starts `codex app-server --stdio`, performs
   the initialize handshake, and parses JSON-RPC notifications such as
   `account/rateLimitsUpdated`, `thread/statusChanged`, `turn/completed`, and

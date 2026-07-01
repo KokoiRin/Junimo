@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
 public final class ProcessCodexAppServerClient: CodexAppServerQuerying {
     private let executableURL: URL
@@ -38,7 +41,7 @@ public final class ProcessCodexAppServerClient: CodexAppServerQuerying {
         return CodexStatusParser.appServerSnapshot(fromJSONL: output, now: now)
     }
 
-    /// 业务语义：每组 app-server 请求独立握手，避免 quota 与 thread/list 互相影响。
+    /// 业务语义：每组 app-server 请求独立握手，并等到关键响应返回或真实超时后才降级。
     private func queryJSONL(timeout: TimeInterval, requests: [[String: Any]], requiredResponseIDs: Set<Int>) -> String? {
         BrokenPipeGuard.install()
         let process = Process()
@@ -53,11 +56,30 @@ public final class ProcessCodexAppServerClient: CodexAppServerQuerying {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let outputLock = NSLock()
+        var outputData = Data()
+        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                return
+            }
+            outputLock.lock()
+            outputData.append(data)
+            outputLock.unlock()
+        }
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            _ = handle.availableData
+        }
+
         do {
             try process.run()
         } catch {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
             return nil
         }
+
+        let deadline = Date().addingTimeInterval(timeout)
 
         guard write(
             [
@@ -77,24 +99,34 @@ public final class ProcessCodexAppServerClient: CodexAppServerQuerying {
             to: stdinPipe
         ) else {
             stop(process: process, stdinPipe: stdinPipe)
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
             return nil
         }
 
-        Thread.sleep(forTimeInterval: min(0.5, timeout))
+        _ = waitForResponses([0], lock: outputLock, outputData: { outputData }, deadline: min(deadline, Date().addingTimeInterval(3)))
         guard process.isRunning, write(["method": "initialized", "params": [:]], to: stdinPipe) else {
             stop(process: process, stdinPipe: stdinPipe)
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
             return nil
         }
         for request in requests {
             guard process.isRunning, write(request, to: stdinPipe) else {
                 stop(process: process, stdinPipe: stdinPipe)
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
                 return nil
             }
         }
-        Thread.sleep(forTimeInterval: min(max(timeout - 0.5, 0.5), 4.0))
+        _ = waitForResponses(requiredResponseIDs, lock: outputLock, outputData: { outputData }, deadline: deadline)
 
         stop(process: process, stdinPipe: stdinPipe)
-        let output = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+        outputLock.lock()
+        let output = String(data: outputData, encoding: .utf8) ?? ""
+        outputLock.unlock()
         let responseIDs = Self.responseIDs(fromJSONL: output)
         guard requiredResponseIDs.isSubset(of: responseIDs) else {
             return output
@@ -102,11 +134,39 @@ public final class ProcessCodexAppServerClient: CodexAppServerQuerying {
         return output
     }
 
+    /// 业务语义：app-server 响应时间取决于账号和网络，adapter 应该等目标响应而不是用固定 sleep 猜测。
+    private func waitForResponses(
+        _ responseIDs: Set<Int>,
+        lock: NSLock,
+        outputData: () -> Data,
+        deadline: Date
+    ) -> Bool {
+        while Date() < deadline {
+            lock.lock()
+            let output = String(data: outputData(), encoding: .utf8) ?? ""
+            lock.unlock()
+            if responseIDs.isSubset(of: Self.responseIDs(fromJSONL: output)) {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        return false
+    }
+
     private func stop(process: Process, stdinPipe: Pipe) {
         stdinPipe.fileHandleForWriting.closeFile()
         if process.isRunning {
             process.terminate()
+            let deadline = Date().addingTimeInterval(2)
+            while process.isRunning && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
         }
+#if canImport(Darwin)
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+        }
+#endif
         process.waitUntilExit()
     }
 

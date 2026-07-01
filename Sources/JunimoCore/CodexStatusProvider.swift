@@ -17,7 +17,7 @@ public final class CodexCLIStatusProvider: CodexMonitorSnapshotProviding {
     public func loadSnapshot(now: Date = Date()) -> CodexMonitorSnapshot {
         let doctor = runDoctor()
         let cloudTasks = runCloudTasks()
-        let appServer = appServerClient?.querySnapshot(timeout: 8, now: now)
+        let appServer = appServerClient?.querySnapshot(timeout: 35, now: now)
         return CodexStatusParser.snapshot(
             doctorJSON: doctor?.stdout,
             doctorExitCode: doctor?.exitCode,
