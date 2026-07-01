@@ -40,6 +40,9 @@ final class CornerNotePanelController {
             coordinator: coordinator,
             onTriggerHoverChanged: { [weak self] isInside in
                 isInside ? self?.scheduleExpansion() : self?.cancelExpansion()
+            },
+            onTriggerTapped: { [weak self] in
+                self?.expandAndShow()
             }
         )
         panel.contentView = NSHostingView(rootView: view)
@@ -71,6 +74,14 @@ final class CornerNotePanelController {
         resize(isExpanded: coordinator.isCornerNoteExpanded)
         panel.orderFrontRegardless()
         pinToBottomRight(isExpanded: coordinator.isCornerNoteExpanded)
+    }
+
+    func expandAndShow() {
+        cancelExpansion()
+        coordinator.setCornerNoteExpanded(true)
+        panel.level = panelLevel
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     func collapse() {

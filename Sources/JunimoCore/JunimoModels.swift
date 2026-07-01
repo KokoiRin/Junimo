@@ -119,7 +119,7 @@ public struct ConsolePreferences: Equatable {
         accent: ConsoleAccent = .mint,
         density: ConsoleDensity = .comfortable,
         expandedWidth: Int = 760,
-        expandedHeight: Int = 300,
+        expandedHeight: Int = 340,
         topOffset: Int = 6
     ) {
         self.accent = accent
@@ -218,93 +218,6 @@ public struct NotificationRequest: Identifiable, Equatable {
         self.title = title
         self.body = body
         self.createdAt = createdAt
-    }
-}
-
-public struct ReleaseVersion: Comparable, CustomStringConvertible, Equatable {
-    public let components: [Int]
-
-    public var description: String {
-        components.map(String.init).joined(separator: ".")
-    }
-
-    /// 业务语义：release 版本必须能从 bundle version 或 release tag 统一解析，供更新判断复用。
-    public init?(_ value: String) {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalized = trimmed.hasPrefix("v") ? String(trimmed.dropFirst()) : trimmed
-        let parts = normalized.split(separator: ".", omittingEmptySubsequences: false)
-        guard !parts.isEmpty else { return nil }
-        var parsed: [Int] = []
-        for part in parts {
-            guard !part.isEmpty, let number = Int(part) else { return nil }
-            parsed.append(number)
-        }
-        self.components = parsed
-    }
-
-    /// 业务语义：GitHub release tag 允许带 v 前缀，但不可解析 tag 不能触发更新。
-    public init?(tag: String) {
-        self.init(tag)
-    }
-
-    /// 业务语义：版本比较按数字段补零比较，避免字符串排序误判 0.1.10 与 0.1.9。
-    public static func < (lhs: ReleaseVersion, rhs: ReleaseVersion) -> Bool {
-        let count = max(lhs.components.count, rhs.components.count)
-        for index in 0..<count {
-            let left = index < lhs.components.count ? lhs.components[index] : 0
-            let right = index < rhs.components.count ? rhs.components[index] : 0
-            if left != right {
-                return left < right
-            }
-        }
-        return false
-    }
-}
-
-public struct ReleaseInfo: Equatable {
-    public var version: ReleaseVersion
-    public var assetName: String
-
-    public init(version: ReleaseVersion, assetName: String) {
-        self.version = version
-        self.assetName = assetName
-    }
-}
-
-public enum SelfUpdateCheckResult: Equatable {
-    case success(ReleaseInfo)
-    case failure(String)
-}
-
-public enum SelfUpdateState: String, Equatable {
-    case idle
-    case checking
-    case upToDate
-    case updateAvailable
-    case checkFailed
-    case installing
-    case installFailed
-}
-
-public struct SelfUpdateSnapshot: Equatable {
-    public var currentVersion: ReleaseVersion
-    public var latestVersion: ReleaseVersion?
-    public var state: SelfUpdateState
-    public var message: String
-    public var lastCheckedAt: Date?
-
-    public init(
-        currentVersion: ReleaseVersion,
-        latestVersion: ReleaseVersion? = nil,
-        state: SelfUpdateState = .idle,
-        message: String = "Check for updates",
-        lastCheckedAt: Date? = nil
-    ) {
-        self.currentVersion = currentVersion
-        self.latestVersion = latestVersion
-        self.state = state
-        self.message = message
-        self.lastCheckedAt = lastCheckedAt
     }
 }
 

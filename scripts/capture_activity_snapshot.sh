@@ -54,7 +54,7 @@ if [[ ! -f "$index_file" ]]; then
   printf 'timestamp,file,width,height,bytes\n' > "$index_file" 2>/dev/null || true
 fi
 
-if ! printf '%s,%s,%s,%s,%s\n' "$timestamp" "$(basename "$out_file")" "$width" "$height" "$bytes" >> "$index_file" 2>/dev/null; then
-  printf 'could not update capture index: %s\n' "$index_file" >&2
-fi
+# 索引只是辅助；某些 macOS provenance/TCC 状态会拒绝 launchd 追加旧索引文件，
+# 但截图本体已经写入成功，不能因此制造持续错误噪声。
+printf '%s,%s,%s,%s,%s\n' "$timestamp" "$(basename "$out_file")" "$width" "$height" "$bytes" >> "$index_file" 2>/dev/null || true
 printf '%s\n' "$out_file"

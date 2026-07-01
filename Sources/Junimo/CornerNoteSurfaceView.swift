@@ -1,3 +1,4 @@
+import AppKit
 import JunimoCore
 import SwiftUI
 
@@ -11,6 +12,7 @@ enum CornerNoteLayout {
 struct CornerNoteSurfaceView: View {
     @ObservedObject var coordinator: TaskCoordinator
     var onTriggerHoverChanged: (Bool) -> Void
+    var onTriggerTapped: () -> Void
 
     var body: some View {
         Group {
@@ -31,6 +33,7 @@ struct CornerNoteSurfaceView: View {
                 cornerTrigger
                     .frame(width: CornerNoteLayout.triggerSize.width, height: CornerNoteLayout.triggerSize.height)
                     .onHover(perform: onTriggerHoverChanged)
+                    .onTapGesture(perform: onTriggerTapped)
             }
         }
     }
@@ -99,15 +102,12 @@ struct CornerNoteSurfaceView: View {
     }
 
     private var noteEditor: some View {
-        TextEditor(
+        ImeTextView(
             text: Binding(
                 get: { coordinator.cornerNoteText },
                 set: { coordinator.updateCornerNoteText($0) }
             )
         )
-        .font(.system(size: 17, weight: .regular))
-        .scrollContentBackground(.hidden)
-        .foregroundStyle(.white.opacity(0.90))
         .padding(10)
         .frame(height: 170)
         .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -137,16 +137,15 @@ struct CornerNoteSurfaceView: View {
             .buttonStyle(.plain)
             .help(todo.isDone ? "Mark open" : "Mark done")
 
-            TextField(
-                "Todo",
+            ImeTextField(
+                placeholder: "Todo",
                 text: Binding(
                     get: { todo.title },
                     set: { coordinator.updateCornerTodo(id: todo.id, title: $0) }
-                )
+                ),
+                isDone: todo.isDone
             )
-            .textFieldStyle(.plain)
-            .font(.system(size: 18, weight: .medium))
-            .foregroundStyle(todo.isDone ? .white.opacity(0.38) : .white.opacity(0.90))
+            .frame(height: 32)
 
             Button {
                 coordinator.removeCornerTodo(id: todo.id)
@@ -211,5 +210,149 @@ private struct CornerTriggerShape: Shape {
         path.addRect(CGRect(x: rect.minX, y: rect.maxY - t, width: rect.width, height: t))
         path.addRect(CGRect(x: rect.maxX - t, y: rect.minY, width: t, height: rect.height))
         return path
+    }
+}
+
+private struct ImeTextView: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> ImeTextViewContainer {
+        let textView = ImeFriendlyTextView()
+        textView.delegate = context.coordinator
+        textView.string = text
+        textView.font = .systemFont(ofSize: 17)
+        textView.textColor = NSColor.white.withAlphaComponent(0.90)
+        textView.insertionPointColor = .white
+        textView.drawsBackground = false
+        textView.isRichText = false
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.textContainerInset = NSSize(width: 0, height: 0)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
+        textView.autoresizingMask = [.width]
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.allowsUndo = true
+
+        let scrollView = ImeTextViewContainer(textView: textView)
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.borderType = .noBorder
+        textView.frame = NSRect(origin: .zero, size: scrollView.contentSize)
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: ImeTextViewContainer, context: Context) {
+        context.coordinator.text = $text
+        let textView = scrollView.textView
+        let contentSize = scrollView.contentSize
+        if textView.frame.width != contentSize.width {
+            textView.frame.size.width = contentSize.width
+        }
+        let isEditing = textView.window?.firstResponder === textView
+        if !isEditing, !textView.hasMarkedText(), textView.string != text {
+            textView.string = text
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            text.wrappedValue = textView.string
+        }
+    }
+}
+
+private final class ImeTextViewContainer: NSScrollView {
+    let textView: ImeFriendlyTextView
+
+    init(textView: ImeFriendlyTextView) {
+        self.textView = textView
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
+private final class ImeFriendlyTextView: NSTextView {
+    override func mouseDown(with event: NSEvent) {
+        window?.makeKey()
+        NSApp.activate(ignoringOtherApps: true)
+        super.mouseDown(with: event)
+    }
+}
+
+private struct ImeTextField: NSViewRepresentable {
+    var placeholder: String
+    @Binding var text: String
+    var isDone: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> ImeFriendlyTextField {
+        let textField = ImeFriendlyTextField()
+        textField.delegate = context.coordinator
+        textField.isBordered = false
+        textField.isBezeled = false
+        textField.drawsBackground = false
+        textField.focusRingType = .none
+        textField.placeholderString = placeholder
+        textField.font = .systemFont(ofSize: 18, weight: .medium)
+        textField.isEditable = true
+        textField.isSelectable = true
+        textField.allowsEditingTextAttributes = false
+        textField.lineBreakMode = .byTruncatingTail
+        return textField
+    }
+
+    func updateNSView(_ textField: ImeFriendlyTextField, context: Context) {
+        context.coordinator.text = $text
+        let editor = textField.currentEditor() as? NSTextView
+        if editor?.hasMarkedText() != true, textField.stringValue != text {
+            textField.stringValue = text
+        }
+        textField.textColor = NSColor.white.withAlphaComponent(isDone ? 0.38 : 0.90)
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let textField = notification.object as? NSTextField else { return }
+            text.wrappedValue = textField.stringValue
+        }
+    }
+}
+
+private final class ImeFriendlyTextField: NSTextField {
+    override func mouseDown(with event: NSEvent) {
+        window?.makeKey()
+        NSApp.activate(ignoringOtherApps: true)
+        super.mouseDown(with: event)
     }
 }

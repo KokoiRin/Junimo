@@ -47,7 +47,7 @@ int main() {
 
     expect(engine.ui_preferences().accent == "mint", "default accent should be mint");
     expect(engine.ui_preferences().expanded_width == 760, "comfortable width should be default");
-    expect(engine.ui_preferences().expanded_height == 300, "comfortable height should be default");
+    expect(engine.ui_preferences().expanded_height == 340, "comfortable height should be default");
     const auto& amber_preferences = engine.set_accent("amber");
     expect(amber_preferences.accent == "amber", "accent should update");
     const auto& compact_preferences = engine.set_density("compact");

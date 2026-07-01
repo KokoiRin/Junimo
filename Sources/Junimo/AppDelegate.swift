@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import JunimoCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -8,8 +7,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: NotchPanelController?
     private var cornerNotePanelController: CornerNotePanelController?
     private var statusItem: NSStatusItem?
-    private var statusMenuUpdateItem: NSMenuItem?
-    private var coordinatorCancellable: AnyCancellable?
     private var lifecycleDiagnosticsTimers: [Timer] = []
     private var allowsTermination = false
 
@@ -44,11 +41,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LaunchLifecycleDiagnostics.record("status-item-installed")
         recordWindowSnapshot(label: "after-status-item")
         scheduleLifecycleDiagnostics()
-        coordinatorCancellable = coordinator.objectWillChange.sink { [weak self] in
-            DispatchQueue.main.async { [weak self] in
-                self?.refreshStatusMenu()
-            }
-        }
         runtime.start { [weak runtime, weak controller] in
             guard let runtime, let controller else { return }
             runtime.writeHealth(panel: controller.diagnostics())
@@ -72,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    /// 业务语义：只有用户主动退出或更新安装才能结束常驻进程，AppKit automatic termination 不能回收菜单栏工具。
+    /// 业务语义：只有用户主动退出才能结束常驻进程，AppKit automatic termination 不能回收菜单栏工具。
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         LaunchLifecycleDiagnostics.record("application-should-terminate", fields: [
             "allowed": "\(allowsTermination)"
@@ -96,25 +88,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController?.expandAndShow()
     }
 
+    /// 业务语义：状态栏 Note 命令提供稳定入口，不依赖透明角落 hover 是否可发现。
+    @objc private func showNoteFromMenu() {
+        cornerNotePanelController?.expandAndShow()
+    }
+
     /// 业务语义：状态栏 Quit 命令保持 macOS app shell 的退出入口。
     @objc private func quitFromMenu() {
         allowsTermination = true
         LaunchLifecycleDiagnostics.record("quit-requested-from-menu")
         NSApp.terminate(nil)
-    }
-
-    /// 业务语义：状态栏更新入口只表达用户意图，检查和安装决策交给 runtime / core 状态。
-    @objc private func updateFromMenu() {
-        guard let runtime else { return }
-        if runtime.coordinator.selfUpdateSnapshot.state == .updateAvailable {
-            runtime.installAvailableUpdate()
-            allowsTermination = true
-            LaunchLifecycleDiagnostics.record("terminate-requested-for-update")
-            NSApp.terminate(nil)
-        } else {
-            runtime.checkForUpdatesNow()
-        }
-        refreshStatusMenu()
     }
 
     /// 业务语义：状态栏菜单属于 AppKit surface，不进入产品 runtime。
@@ -125,15 +108,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Show Junimo", action: #selector(showPanelFromMenu), keyEquivalent: ""))
-        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(updateFromMenu), keyEquivalent: "")
-        statusMenuUpdateItem = updateItem
-        menu.addItem(updateItem)
+        menu.addItem(NSMenuItem(title: "Show Note", action: #selector(showNoteFromMenu), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Junimo", action: #selector(quitFromMenu), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }
         item.menu = menu
         statusItem = item
-        refreshStatusMenu()
     }
 
     /// 业务语义：LSUIElement 菜单栏应用也需要一个 AppKit 生命周期锚点，避免无普通窗口时被 automatic termination 回收。
@@ -204,31 +184,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ])
     }
 
-    /// 业务语义：菜单标题是 self-update 快照的派生投影，不在 AppDelegate 内重新判断版本。
-    private func refreshStatusMenu() {
-        guard let item = statusMenuUpdateItem, let runtime else { return }
-        switch runtime.coordinator.selfUpdateSnapshot.state {
-        case .idle:
-            item.title = "Check for Updates..."
-            item.isEnabled = true
-        case .checking:
-            item.title = "Checking for Updates..."
-            item.isEnabled = false
-        case .upToDate:
-            item.title = "Junimo is Up to Date"
-            item.isEnabled = true
-        case .updateAvailable:
-            item.title = "Install Update..."
-            item.isEnabled = true
-        case .checkFailed:
-            item.title = "Check Failed - Try Again"
-            item.isEnabled = true
-        case .installing:
-            item.title = "Installing Update..."
-            item.isEnabled = false
-        case .installFailed:
-            item.title = "Install Failed - Try Again"
-            item.isEnabled = true
-        }
-    }
 }

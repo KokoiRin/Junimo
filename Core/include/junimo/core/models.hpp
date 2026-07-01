@@ -78,7 +78,7 @@ struct UiPreferences {
     std::string accent = "mint";
     std::string density = "comfortable";
     int expanded_width = 760;
-    int expanded_height = 300;
+    int expanded_height = 340;
     int top_offset = 6;
 };
 

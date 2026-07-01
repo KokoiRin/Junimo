@@ -2,13 +2,24 @@ import AppKit
 import JunimoCore
 import SwiftUI
 
+enum JunimoPanelPage: String, CaseIterable, Identifiable {
+    case codex
+    case focus
+    case note
+    case capture
+
+    var id: String { rawValue }
+}
+
 struct JunimoSurfaceView: View {
     @ObservedObject var coordinator: TaskCoordinator
-    @State private var commandText = ""
     @State private var now = Date()
+    @State private var selectedPage: JunimoPanelPage = .codex
     @State private var attentionPulse = false
     @State private var attentionSweep = false
     @State private var lastAttentionID = ""
+
+    private let copy = JunimoSurfaceCopy.simplifiedChinese
 
     var body: some View {
         Group {
@@ -194,35 +205,36 @@ struct JunimoSurfaceView: View {
     }
 
     private var expandedConsole: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             islandBackground
 
             VStack(spacing: 0) {
                 islandHeader
-                    .padding(.horizontal, 26)
-                    .padding(.top, 18)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
+                    .padding(.bottom, 10)
+
+                HStack(alignment: .top, spacing: 14) {
+                    pageTabs
+                        .frame(width: 118)
+
+                    selectedPageContent
+                        .frame(maxWidth: .infinity)
+                }
+                .padding(.horizontal, 24)
+                .frame(height: 184)
 
                 Spacer(minLength: 0)
 
-                islandCenterStage
-
-                codexStatusStrip
-                    .padding(.horizontal, 42)
-                    .padding(.top, 14)
-
-                bottomDock
-                    .padding(.horizontal, 78)
+                latestActivityStrip
+                    .padding(.horizontal, 24)
                     .padding(.bottom, 16)
+                    .padding(.top, 10)
             }
         }
         .foregroundStyle(.white.opacity(0.94))
         .clipShape(TopAttachedPanelShape(radius: 36))
         .shadow(color: .black.opacity(0.42), radius: 24, x: 0, y: 12)
-        .overlay(alignment: .topTrailing) {
-            quitButton
-                .padding(.top, 18)
-                .padding(.trailing, 22)
-        }
     }
 
     private var islandBackground: some View {
@@ -247,13 +259,13 @@ struct JunimoSurfaceView: View {
     private var islandHeader: some View {
         HStack {
             HStack(spacing: 12) {
-                Image(systemName: "leaf.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(accentColor)
-                VStack(alignment: .leading, spacing: 2) {
+                spriteImage
+                    .frame(width: 30, height: 28)
+
+                VStack(alignment: .leading, spacing: 3) {
                     Text("Junimo")
                         .font(.system(size: 14, weight: .semibold))
-                    Text(coordinator.projectProfile.stack)
+                    Text(copy.headerSubtitle(coordinator.projectProfile.stack))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.white.opacity(0.48))
                         .lineLimit(1)
@@ -262,491 +274,326 @@ struct JunimoSurfaceView: View {
 
             Spacer()
 
-            HStack(spacing: 10) {
-                ForEach(ConsoleDensity.allCases) { density in
-                    Button {
-                        coordinator.setDensity(density)
-                    } label: {
-                        Text(density.label)
-                            .font(.system(size: 10, weight: .semibold))
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.plain)
-                    .background(
-                        coordinator.preferences.density == density ? accentColor.opacity(0.28) : Color.white.opacity(0.08),
-                        in: Capsule()
-                    )
-                    .help(density.label)
-                }
-
-                ForEach(ConsoleAccent.allCases) { accent in
-                    Button {
-                        coordinator.setAccent(accent)
-                    } label: {
-                        Circle()
-                            .fill(color(for: accent))
-                            .frame(width: 15, height: 15)
-                            .overlay(
-                                Circle().stroke(
-                                    coordinator.theme.accent == accent ? Color.white : Color.clear,
-                                    lineWidth: 2
-                                )
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .help(accent.label)
-                }
-
-            }
-        }
-    }
-
-    private var islandCenterStage: some View {
-        VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(accentColor.opacity(0.18))
-                    .frame(width: 54, height: 54)
-                Image(systemName: centerStageIcon)
-                    .font(.system(size: 32, weight: .bold))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(accentColor)
-            }
-
-            VStack(spacing: 6) {
-                Text(centerStageTitle)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.86))
-                Text(centerStageSubtitle)
-                    .font(.system(size: 12, weight: .medium))
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(localizedUsageSummary)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(attentionColor)
+                Text(copy.currentPageTitle(selectedPage))
+                    .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.44))
                     .lineLimit(1)
             }
         }
-        .padding(.top, 8)
     }
 
-    private var codexStatusStrip: some View {
-        HStack(spacing: 10) {
-            codexMetric(
-                icon: "gauge.medium",
-                title: "Quota",
-                value: coordinator.codexMonitor.usage.summaryText,
-                detail: codexQuotaDetail
-            )
-
-            codexMetric(
-                icon: "bubble.left.and.bubble.right.fill",
-                title: "Threads",
-                value: "\(coordinator.codexMonitor.activeThreadCount)/\(coordinator.codexMonitor.threads.count)",
-                detail: codexThreadsDetail
-            )
-
-            codexMetric(
-                icon: "bell.badge.fill",
-                title: "Alerts",
-                value: codexAlertValue,
-                detail: codexAlertDetail
-            )
-        }
-        .frame(height: 46)
-    }
-
-    private var bottomDock: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 8) {
-                if let review = coordinator.codexReviewItems.first {
-                    Button {
-                        coordinator.acknowledgeCodexReview(id: review.id)
-                    } label: {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 34, height: 30)
-                    }
-                    .buttonStyle(.plain)
-                    .background(attentionColor.opacity(0.22), in: Circle())
-                    .foregroundStyle(attentionColor)
-                    .help("Mark Codex result reviewed: \(review.title)")
-
-                    dockDivider
-                }
-
-                ForEach(coordinator.actions) { action in
-                    dockButton(icon: icon(for: action.kind), title: action.title) {
-                        coordinator.performAction(id: action.id)
-                    }
-                }
-            }
-
-            dockDivider
-
-            HStack(spacing: 8) {
+    private var pageTabs: some View {
+        VStack(spacing: 8) {
+            ForEach(JunimoPanelPage.allCases) { page in
                 Button {
-                    coordinator.updateCommandQuery("focus")
-                    coordinator.performCommand(id: "pomodoro-25")
+                    selectedPage = page
                 } label: {
-                    Label("25m", systemImage: "timer")
-                        .labelStyle(.iconOnly)
+                    HStack(spacing: 6) {
+                        Image(systemName: copy.pageIcon(page))
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(copy.pageTitle(page))
+                            .font(.system(size: 11, weight: .semibold))
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: 36)
+                    .foregroundStyle(selectedPage == page ? Color.black.opacity(0.86) : Color.white.opacity(0.72))
+                    .background(
+                        selectedPage == page ? accentColor : Color.white.opacity(0.075),
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.white.opacity(selectedPage == page ? 0.0 : 0.08), lineWidth: 1)
+                    )
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 14, weight: .semibold))
-                .frame(width: 34, height: 30)
-                .background(Color.white.opacity(0.08), in: Circle())
-                .help("Start 25 minute focus")
-
-                if let session = coordinator.activePomodoro {
-                    Text(remainingText(for: session, at: now))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(accentColor)
-                        .monospacedDigit()
-                        .frame(width: 54, alignment: .leading)
-                } else {
-                    Text("Ready")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.58))
-                        .frame(width: 54, alignment: .leading)
-                }
-
+                .help(copy.pageHelp(page))
             }
+        }
+    }
 
-            dockDivider
+    @ViewBuilder
+    private var selectedPageContent: some View {
+        switch selectedPage {
+        case .codex:
+            codexPage
+        case .focus:
+            focusPage
+        case .note:
+            notePage
+        case .capture:
+            capturePage
+        }
+    }
 
-            HStack(spacing: 8) {
-                ForEach(coordinator.agents) { agent in
-                    HStack(spacing: 5) {
-                        statusDot(for: agent.status)
-                        Text(agent.name.prefix(1))
-                            .font(.system(size: 11, weight: .bold))
+    private var codexPage: some View {
+        HStack(alignment: .top, spacing: 12) {
+            modulePanel(title: copy.codexTitle, status: codexCapabilityStatus, statusColor: attentionColor) {
+                VStack(alignment: .leading, spacing: 10) {
+                    infoRow(copy.quotaLabel, localizedUsageSummary)
+                    infoRow(copy.threadLabel, localizedThreadSummary)
+                    infoRow(copy.reviewLabel, codexReviewSummary)
+
+                    if let review = coordinator.codexReviewItems.first {
+                        cardActionButton(title: copy.markRead, systemImage: "checkmark", help: copy.markReadHelp(review.title)) {
+                            coordinator.acknowledgeCodexReview(id: review.id)
+                        }
                     }
-                    .frame(width: 32, height: 28)
-                    .background(Color.white.opacity(0.07), in: Capsule())
-                    .help("\(agent.name): \(agent.status.label)")
+                }
+            }
+            .frame(width: 332)
+
+            modulePanel(title: copy.connectionTitle, status: "\(connectionReadyCount)/\(connectionFindings.count)", statusColor: .green) {
+                VStack(spacing: 8) {
+                    ForEach(connectionFindings.prefix(4)) { finding in
+                        connectionRow(finding)
+                    }
+
+                    if connectionFindings.isEmpty {
+                        Text(copy.noConnectionFindings)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.48))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Color.black.opacity(0.86), in: Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 1))
+        .frame(height: 184)
     }
 
-    private var dockDivider: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.16))
-            .frame(width: 1, height: 24)
+    private var focusPage: some View {
+        HStack(alignment: .top, spacing: 12) {
+            modulePanel(title: copy.focusTitle, status: coordinator.activePomodoro == nil ? copy.ready : copy.active, statusColor: coordinator.activePomodoro == nil ? accentColor : .yellow) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(focusPrimaryText)
+                        .font(.system(size: 30, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.92))
+                        .lineLimit(1)
+
+                    Text(focusCapabilityDetail)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.54))
+                        .lineLimit(2)
+
+                    if coordinator.activePomodoro == nil {
+                        cardActionButton(title: copy.startFocus, systemImage: "timer", help: copy.startFocusHelp) {
+                            coordinator.startPomodoro(duration: 25 * 60)
+                        }
+                    } else {
+                        cardActionButton(title: copy.stopFocus, systemImage: "xmark", help: copy.stopFocusHelp) {
+                            coordinator.cancelPomodoro()
+                        }
+                    }
+                }
+            }
+            .frame(width: 332)
+
+            modulePanel(title: copy.reminderTitle, status: "\(coordinator.pendingNotifications.count)", statusColor: .orange) {
+                VStack(alignment: .leading, spacing: 10) {
+                    infoRow(copy.reminderStatusLabel, focusCapabilityFootnote)
+                    infoRow(copy.sessionLabel, latestSessionSummary)
+                }
+            }
+        }
+        .frame(height: 184)
     }
 
-    private func dockButton(icon: String, title: String, action: @escaping () -> Void) -> some View {
+    private var notePage: some View {
+        HStack(alignment: .top, spacing: 12) {
+            modulePanel(title: copy.noteTitle, status: coordinator.isCornerNoteExpanded ? copy.open : "\(openTodoCount) \(copy.todoOpenSuffix)", statusColor: accentColor) {
+                VStack(alignment: .leading, spacing: 10) {
+                    infoRow(copy.noteStatusLabel, localizedNoteState)
+                    infoRow(copy.todoLabel, "\(coordinator.cornerTodos.count) \(copy.todoCountSuffix)")
+                    cardActionButton(title: copy.openNote, systemImage: "square.and.pencil", help: copy.openNoteHelp) {
+                        coordinator.setCornerNoteExpanded(true)
+                    }
+                }
+            }
+            .frame(width: 332)
+
+            modulePanel(title: copy.todoPreviewTitle, status: "\(openTodoCount)", statusColor: .mint) {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(coordinator.cornerTodos.prefix(3)) { todo in
+                        todoPreviewRow(todo)
+                    }
+
+                    if coordinator.cornerTodos.isEmpty {
+                        Text(copy.noTodos)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.48))
+                    }
+                }
+            }
+        }
+        .frame(height: 184)
+    }
+
+    private var capturePage: some View {
+        HStack(alignment: .top, spacing: 12) {
+            modulePanel(title: copy.captureTitle, status: copy.externalScript, statusColor: .blue) {
+                VStack(alignment: .leading, spacing: 10) {
+                    infoRow(copy.captureOwnerLabel, copy.captureOwner)
+                    infoRow(copy.capturePathLabel, "~/Documents/JunimoActivityCaptures")
+                    infoRow(copy.capturePolicyLabel, copy.capturePolicy)
+                }
+            }
+            .frame(width: 332)
+
+            modulePanel(title: copy.captureBoundaryTitle, status: copy.detached, statusColor: .gray) {
+                Text(copy.captureBoundaryDetail)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.56))
+                    .lineLimit(5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(height: 184)
+    }
+
+    private func modulePanel<Content: View>(
+        title: String,
+        status: String,
+        statusColor: Color,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                statusPill(status, color: statusColor)
+            }
+
+            content()
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.080), lineWidth: 1))
+    }
+
+    private func infoRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.40))
+                .frame(width: 56, alignment: .leading)
+
+            Text(value)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.72))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func todoPreviewRow(_ todo: CornerTodoItem) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: todo.isDone ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(todo.isDone ? accentColor : Color.white.opacity(0.42))
+                .frame(width: 14)
+
+            Text(todo.title.isEmpty ? copy.emptyTodoTitle : todo.title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(todo.isDone ? Color.white.opacity(0.38) : Color.white.opacity(0.70))
+                .lineLimit(1)
+        }
+    }
+
+    private var latestActivityStrip: some View {
+        HStack(spacing: 8) {
+            Text(copy.latestTitle)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.42))
+
+            Text(latestActivityTitle)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.70))
+                .lineLimit(1)
+
+            Text(latestActivityDetail)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.white.opacity(0.42))
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(Color.black.opacity(0.54), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.075), lineWidth: 1))
+    }
+
+    private func cardActionButton(title: String, systemImage: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
-                .frame(width: 34, height: 30)
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 10, weight: .bold))
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 26)
         }
         .buttonStyle(.plain)
-        .background(Color.white.opacity(0.08), in: Circle())
         .foregroundStyle(.white.opacity(0.88))
-        .help(title)
+        .background(Color.white.opacity(0.095), in: Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+        .help(help)
     }
 
-    private func codexMetric(icon: String, title: String, value: String, detail: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(accentColor)
-                .frame(width: 18)
+    private func statusPill(_ text: String, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text(text)
+                .font(.system(size: 9, weight: .bold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 7)
+        .frame(height: 22)
+        .background(color.opacity(0.13), in: Capsule())
+        .overlay(Capsule().stroke(color.opacity(0.18), lineWidth: 1))
+    }
+
+    private func connectionRow(_ finding: CodexIntegrationFinding) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Circle()
+                .fill(color(for: finding.status))
+                .frame(width: 6, height: 6)
+                .alignmentGuide(.firstTextBaseline) { context in context[VerticalAlignment.center] }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.44))
+                Text(localizedFindingTitle(finding))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.76))
                     .lineLimit(1)
-                Text(value)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.88))
-                    .lineLimit(1)
-                Text(detail)
+                Text(localizedStatus(finding.status))
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.42))
                     .lineLimit(1)
             }
+
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.08), lineWidth: 1))
-        .help("\(title): \(value). \(detail)")
-    }
-
-    private var quitButton: some View {
-        Button {
-            NSApp.terminate(nil)
-        } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 11, weight: .bold))
-                .frame(width: 26, height: 26)
-        }
-        .buttonStyle(.plain)
-        .background(Color.white.opacity(0.08), in: Circle())
-        .foregroundStyle(.white.opacity(0.78))
-        .help("Quit Junimo")
-    }
-
-    private var agentsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("Agents", systemImage: "person.2.wave.2.fill")
-            ForEach(coordinator.agents) { agent in
-                HStack(spacing: 10) {
-                    statusDot(for: agent.status)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(agent.name)
-                            .font(.system(size: 13, weight: .semibold))
-                        Text(agent.detail)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                    Spacer()
-                    Text(agent.status.label)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(10)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
-        }
-    }
-
-    private var projectProfileSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("Project", systemImage: "rectangle.stack.fill")
-            VStack(alignment: .leading, spacing: 7) {
-                Text(coordinator.projectProfile.name)
-                    .font(.system(size: 14, weight: .semibold))
-                Text(coordinator.projectProfile.stack)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text(coordinator.projectProfile.path)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                HStack(spacing: 6) {
-                    ForEach(coordinator.projectProfile.shortcuts.prefix(3), id: \.self) { shortcut in
-                        Text(shortcut)
-                            .font(.system(size: 10, weight: .medium))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(accentColor.opacity(0.16), in: Capsule())
-                    }
-                }
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-    }
-
-    private var commandPaletteSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("Command Palette", systemImage: "command")
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("Search commands", text: $commandText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .onChange(of: commandText) { _, newValue in
-                            coordinator.updateCommandQuery(newValue)
-                        }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                    ForEach(coordinator.commandResults.prefix(6)) { command in
-                        Button {
-                            coordinator.performCommand(id: command.id)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: icon(forCommandCategory: command.category))
-                                    .frame(width: 20)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(command.title)
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .lineLimit(1)
-                                    Text(command.subtitle)
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .padding(9)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08), lineWidth: 1))
-                    }
-                }
-            }
-        }
-    }
-
-    private var actionsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("Actions", systemImage: "bolt.fill")
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ForEach(coordinator.actions) { action in
-                    Button {
-                        coordinator.performAction(id: action.id)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: icon(for: action.kind))
-                                .frame(width: 20)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(action.title)
-                                    .font(.system(size: 13, weight: .semibold))
-                                Text(action.subtitle)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08), lineWidth: 1))
-                }
-            }
-        }
-    }
-
-    private var pomodoroSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("Pomodoro", systemImage: "timer")
-            VStack(alignment: .leading, spacing: 10) {
-                if let session = coordinator.activePomodoro {
-                    HStack {
-                        Text(remainingText(for: session, at: now))
-                            .font(.system(size: 22, weight: .semibold, design: .rounded))
-                        Spacer()
-                        Button {
-                            coordinator.cancelPomodoro()
-                        } label: {
-                            Image(systemName: "xmark")
-                        }
-                        .buttonStyle(.bordered)
-                        .help("Cancel")
-                    }
-                    Text("Ends \(session.endsAt, style: .time)")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                } else {
-                    HStack(spacing: 8) {
-                        Button {
-                            coordinator.startPomodoro(duration: 25 * 60)
-                        } label: {
-                            Label("25m", systemImage: "play.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(accentColor)
-
-                        Button {
-                            coordinator.startPomodoro(duration: 10)
-                        } label: {
-                            Label("10s", systemImage: "hare.fill")
-                        }
-                        .buttonStyle(.bordered)
-                        .help("Start short timer")
-                    }
-                }
-            }
-            .padding(10)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-    }
-
-    private var activitySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("Recent", systemImage: "clock.arrow.circlepath")
-            VStack(spacing: 6) {
-                ForEach(coordinator.recentActivities.prefix(5)) { entry in
-                    HStack(alignment: .top, spacing: 8) {
-                        Circle()
-                            .fill(accentColor)
-                            .frame(width: 6, height: 6)
-                            .padding(.top, 5)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.title)
-                                .font(.system(size: 12, weight: .semibold))
-                            Text(entry.detail)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        Text(entry.date, style: .time)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.vertical, 3)
-                }
-            }
-            .padding(10)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-    }
-
-    private var sessionsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("Sessions", systemImage: "list.bullet.rectangle")
-            VStack(spacing: 6) {
-                if coordinator.sessions.isEmpty {
-                    Text("No sessions yet")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                } else {
-                    ForEach(coordinator.sessions.prefix(3)) { session in
-                        HStack(spacing: 8) {
-                            statusDot(forSession: session.status)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(session.title)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .lineLimit(1)
-                                Text(session.detail)
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Text(session.statusLabel)
-                                .font(.system(size: 10, weight: .semibold))
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(color(forSession: session.status).opacity(0.16), in: Capsule())
-                                .foregroundStyle(color(forSession: session.status))
-                        }
-                        .padding(.vertical, 3)
-                    }
-                }
-            }
-            .padding(10)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-    }
-
-    private var runningSummary: String {
-        coordinator.agents.contains(where: { $0.status == .running }) ? "Active" : "Ready"
+        .help("\(localizedFindingTitle(finding)): \(localizedStatus(finding.status)). \(finding.detail)")
     }
 
     private var codexQuotaDetail: String {
@@ -765,19 +612,84 @@ struct JunimoSurfaceView: View {
         }
     }
 
-    private var codexThreadsDetail: String {
-        let activeThreads = coordinator.codexMonitor.threads.filter { $0.status.isActive }
-        if activeThreads.isEmpty {
-            return latestCodexThreadDetail
+    private var codexCapabilityStatus: String {
+        if !coordinator.codexReviewItems.isEmpty {
+            return "\(coordinator.codexReviewItems.count) \(copy.reviewUnit)"
         }
-        return activeThreads.prefix(2).map(\.title).joined(separator: ", ")
+        return localizedStatus(coordinator.codexMonitor.usage.status)
     }
 
-    private var latestCodexThreadDetail: String {
-        guard let latest = coordinator.codexMonitor.latestThread else {
-            return "app-server not connected"
+    private var localizedUsageSummary: String {
+        guard let usedPercent = coordinator.codexMonitor.usage.primaryWindow?.usedPercent else {
+            return localizedStatus(coordinator.codexMonitor.usage.status)
         }
-        return "\(latest.status.label) · \(latest.title)"
+        return "\(max(0, 100 - usedPercent))% \(copy.remainingSuffix)"
+    }
+
+    private var localizedThreadSummary: String {
+        let active = coordinator.codexMonitor.activeThreadCount
+        let open = coordinator.codexMonitor.openThreadCount
+        let visible = coordinator.codexMonitor.threads.count
+        return "\(active) \(copy.activeThreadUnit)，\(open) \(copy.openThreadUnit)，\(visible) \(copy.visibleThreadUnit)"
+    }
+
+    private var codexReviewSummary: String {
+        guard let review = coordinator.codexReviewItems.first else {
+            return copy.noReviewPending
+        }
+        return "\(localizedThreadStatus(review.status)) · \(review.title)"
+    }
+
+    private var focusPrimaryText: String {
+        guard let session = coordinator.activePomodoro else {
+            return "25:00"
+        }
+        return remainingText(for: session, at: now)
+    }
+
+    private var focusCapabilityDetail: String {
+        guard let session = coordinator.activePomodoro else {
+            return copy.focusReadyDetail
+        }
+        return "\(session.title) · \(copy.endsAtPrefix) \(session.endsAt.formatted(date: .omitted, time: .shortened))"
+    }
+
+    private var focusCapabilityFootnote: String {
+        if coordinator.activePomodoro != nil {
+            return copy.focusNotificationDetail
+        }
+        return coordinator.pendingNotifications.isEmpty ? copy.noPendingReminders : "\(coordinator.pendingNotifications.count) \(copy.pendingReminderUnit)"
+    }
+
+    private var latestSessionSummary: String {
+        guard let session = coordinator.sessions.first else {
+            return copy.noSession
+        }
+        return "\(session.title) · \(localizedSessionStatus(session.status))"
+    }
+
+    private var openTodoCount: Int {
+        coordinator.cornerTodos.filter { !$0.isDone }.count
+    }
+
+    private var localizedNoteState: String {
+        coordinator.cornerNoteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? copy.noNoteText : copy.noteSaved
+    }
+
+    private var connectionFindings: [CodexIntegrationFinding] {
+        coordinator.codexMonitor.findings
+    }
+
+    private var connectionReadyCount: Int {
+        connectionFindings.filter { $0.status == .available }.count
+    }
+
+    private var latestActivityTitle: String {
+        coordinator.recentActivities.first?.title ?? copy.noActivityTitle
+    }
+
+    private var latestActivityDetail: String {
+        coordinator.recentActivities.first?.detail ?? copy.noActivityDetail
     }
 
     private func quotaWindowText(_ window: CodexUsageWindow?) -> String? {
@@ -787,67 +699,14 @@ struct JunimoSurfaceView: View {
         let remaining = max(0, 100 - usedPercent)
         switch window.durationMinutes {
         case 300:
-            return "5h \(remaining)%"
+            return "5 \(copy.hourWindow) \(remaining)%"
         case 10_080:
-            return "week \(remaining)%"
+            return "\(copy.weekWindow) \(remaining)%"
         case let minutes?:
-            return "\(minutes)m \(remaining)%"
+            return "\(minutes) \(copy.minuteWindow) \(remaining)%"
         case nil:
             return "\(window.label) \(remaining)%"
         }
-    }
-
-    private var codexAlertValue: String {
-        if coordinator.codexReviewItems.isEmpty {
-            return "Quiet"
-        }
-        return "\(coordinator.codexReviewItems.count) review"
-    }
-
-    private var codexAlertDetail: String {
-        guard let review = coordinator.codexReviewItems.first else {
-            return "watching completions"
-        }
-        return "\(review.status.label) · \(review.title)"
-    }
-
-    private var centerStageIcon: String {
-        if let review = coordinator.codexReviewItems.first {
-            return review.status == .failed ? "exclamationmark.triangle.fill" : "bell.badge.fill"
-        }
-        if coordinator.activePomodoro != nil {
-            return "timer"
-        }
-        if coordinator.sessions.isEmpty {
-            return "face.smiling.inverse"
-        }
-        return "sparkles"
-    }
-
-    private var centerStageTitle: String {
-        if let review = coordinator.codexReviewItems.first {
-            return review.status == .failed ? "Codex needs attention" : "Codex ready"
-        }
-        if let session = coordinator.activePomodoro {
-            return remainingText(for: session, at: now)
-        }
-        if coordinator.sessions.isEmpty {
-            return "暂无会话"
-        }
-        return coordinator.sessions.first?.title ?? "Junimo"
-    }
-
-    private var centerStageSubtitle: String {
-        if let review = coordinator.codexReviewItems.first {
-            return "\(review.title): \(review.detail)"
-        }
-        if let session = coordinator.activePomodoro {
-            return "Focus until \(session.endsAt.formatted(date: .omitted, time: .shortened))"
-        }
-        if coordinator.sessions.isEmpty {
-            return "Hover to keep the island open"
-        }
-        return coordinator.sessions.first?.detail ?? runningSummary
     }
 
     private var accentColor: Color {
@@ -856,14 +715,17 @@ struct JunimoSurfaceView: View {
 
     /// 业务语义：collapsed 右侧状态位优先提示待处理 Codex 结果，没有结果时才回到配额。
     private var collapsedStatusText: String {
-        coordinator.codexCollapsedStatusText
+        if let review = coordinator.codexReviewItems.first {
+            return review.status == .failed ? copy.collapsedFailed : copy.collapsedDone
+        }
+        return localizedUsageSummary
     }
 
     private var collapsedStatusHelp: String {
         guard let review = coordinator.codexReviewItems.first else {
             return codexQuotaDetail
         }
-        return "Mark Codex result reviewed: \(review.title)"
+        return copy.markReadHelp(review.title)
     }
 
     private var hasCodexReviewAttention: Bool {
@@ -912,62 +774,54 @@ struct JunimoSurfaceView: View {
         return NSImage(contentsOf: url)
     }
 
-    private func sectionTitle(_ title: String, systemImage: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(accentColor)
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func statusDot(for status: AgentStatus) -> some View {
-        Circle()
-            .fill(status == .running ? Color.green : status == .failed ? Color.red : accentColor)
-            .frame(width: 8, height: 8)
-    }
-
-    private func statusDot(forSession status: ExecutionSessionStatus) -> some View {
-        Circle()
-            .fill(color(forSession: status))
-            .frame(width: 7, height: 7)
-    }
-
-    private func color(forSession status: ExecutionSessionStatus) -> Color {
-        switch status {
-        case .queued: .secondary
-        case .running: .green
-        case .succeeded: accentColor
-        case .failed: .red
-        }
-    }
-
-    private func icon(for kind: ConsoleActionKind) -> String {
-        switch kind {
-        case .agent: "sparkles"
-        case .tool: "hammer.fill"
-        case .project: "folder.fill"
-        }
-    }
-
-    private func icon(forCommandCategory category: String) -> String {
-        switch category {
-        case "Agents": "sparkles"
-        case "Project": "folder.fill"
-        case "Focus": "timer"
-        case "Tools": "hammer.fill"
-        default: "command"
-        }
-    }
-
     private func color(for accent: ConsoleAccent) -> Color {
         switch accent {
         case .mint: .mint
         case .amber: .orange
         case .graphite: .gray
         }
+    }
+
+    private func color(for status: CodexCapabilityStatus) -> Color {
+        switch status {
+        case .available: .green
+        case .needsSetup: .yellow
+        case .unsupported: .gray
+        case .degraded: .orange
+        }
+    }
+
+    private func localizedStatus(_ status: CodexCapabilityStatus) -> String {
+        switch status {
+        case .available: copy.statusAvailable
+        case .needsSetup: copy.statusNeedsSetup
+        case .unsupported: copy.statusUnsupported
+        case .degraded: copy.statusDegraded
+        }
+    }
+
+    private func localizedThreadStatus(_ status: CodexThreadStatus) -> String {
+        switch status {
+        case .idle: copy.threadIdle
+        case .running: copy.threadRunning
+        case .waiting: copy.threadWaiting
+        case .open: copy.threadOpen
+        case .completed: copy.threadCompleted
+        case .failed: copy.threadFailed
+        }
+    }
+
+    private func localizedSessionStatus(_ status: ExecutionSessionStatus) -> String {
+        switch status {
+        case .queued: copy.sessionQueued
+        case .running: copy.sessionRunning
+        case .succeeded: copy.sessionSucceeded
+        case .failed: copy.sessionFailed
+        }
+    }
+
+    private func localizedFindingTitle(_ finding: CodexIntegrationFinding) -> String {
+        copy.findingTitle(finding.id, fallback: finding.title)
     }
 
     private func remainingText(for session: PomodoroSession, at date: Date) -> String {
@@ -977,6 +831,167 @@ struct JunimoSurfaceView: View {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
+}
+
+/// 业务语义：主面板可见文案集中在 copy 对象里，后续切换语言时不需要改散落的 SwiftUI 布局。
+struct JunimoSurfaceCopy {
+    static let simplifiedChinese = JunimoSurfaceCopy()
+
+    let codexTitle = "Codex 状态"
+    let focusTitle = "专注计时"
+    let noteTitle = "便签 / 待办"
+    let captureTitle = "截图脚本"
+    let connectionTitle = "连接情况"
+    let reminderTitle = "提醒"
+    let todoPreviewTitle = "待办预览"
+    let captureBoundaryTitle = "边界"
+    let latestTitle = "最近"
+
+    let quotaLabel = "配额"
+    let threadLabel = "线程"
+    let reviewLabel = "结果"
+    let reminderStatusLabel = "状态"
+    let sessionLabel = "会话"
+    let noteStatusLabel = "便签"
+    let todoLabel = "待办"
+    let captureOwnerLabel = "归属"
+    let capturePathLabel = "目录"
+    let capturePolicyLabel = "策略"
+
+    let markRead = "确认"
+    let startFocus = "开始"
+    let stopFocus = "停止"
+    let openNote = "打开"
+    let ready = "就绪"
+    let active = "运行中"
+    let open = "已打开"
+    let externalScript = "外部脚本"
+    let detached = "已拆出"
+
+    let captureOwner = "LaunchAgent 后台脚本"
+    let capturePolicy = "应用内不再请求截图权限"
+    let captureBoundaryDetail = "截图能力已经从 Junimo 主面板拆出。这里仅提示它是独立后台脚本；启动、停止和权限处理不放在主工具里。"
+
+    let noConnectionFindings = "还没有连接诊断信息"
+    let noReviewPending = "没有待确认结果"
+    let focusReadyDetail = "启动一个 25 分钟专注计时"
+    let focusNotificationDetail = "结束时会创建提醒"
+    let noPendingReminders = "没有待发送提醒"
+    let noSession = "暂无会话"
+    let noNoteText = "还没有便签内容"
+    let noteSaved = "便签内容已保存"
+    let noTodos = "还没有待办"
+    let noActivityTitle = "暂无活动"
+    let noActivityDetail = "Junimo 正在等待下一次本地事件"
+    let emptyTodoTitle = "未命名待办"
+
+    let reviewUnit = "个结果"
+    let activeThreadUnit = "个运行中"
+    let openThreadUnit = "个打开"
+    let visibleThreadUnit = "条可见"
+    let remainingSuffix = "可用"
+    let pendingReminderUnit = "个待提醒"
+    let todoOpenSuffix = "个未完成"
+    let todoCountSuffix = "条"
+    let endsAtPrefix = "预计结束"
+    let hourWindow = "小时窗口"
+    let weekWindow = "本周窗口"
+    let minuteWindow = "分钟窗口"
+    let collapsedFailed = "失败"
+    let collapsedDone = "完成"
+
+    let statusAvailable = "可用"
+    let statusNeedsSetup = "实时配额未连接"
+    let statusUnsupported = "不支持"
+    let statusDegraded = "降级"
+
+    let threadIdle = "空闲"
+    let threadRunning = "运行中"
+    let threadWaiting = "等待中"
+    let threadOpen = "打开"
+    let threadCompleted = "完成"
+    let threadFailed = "失败"
+
+    let sessionQueued = "排队中"
+    let sessionRunning = "运行中"
+    let sessionSucceeded = "完成"
+    let sessionFailed = "失败"
+
+    func headerSubtitle(_ stack: String) -> String {
+        "本地控制台 · \(stack)"
+    }
+
+    func currentPageTitle(_ page: JunimoPanelPage) -> String {
+        "当前：\(pageTitle(page))"
+    }
+
+    func pageTitle(_ page: JunimoPanelPage) -> String {
+        switch page {
+        case .codex: "Codex"
+        case .focus: "专注"
+        case .note: "便签"
+        case .capture: "截图"
+        }
+    }
+
+    func pageIcon(_ page: JunimoPanelPage) -> String {
+        switch page {
+        case .codex: "terminal"
+        case .focus: "timer"
+        case .note: "checklist"
+        case .capture: "camera.viewfinder"
+        }
+    }
+
+    func pageHelp(_ page: JunimoPanelPage) -> String {
+        switch page {
+        case .codex: "查看 Codex 配额、线程和连接"
+        case .focus: "查看和控制番茄钟"
+        case .note: "打开便签和待办"
+        case .capture: "查看独立截图脚本的边界"
+        }
+    }
+
+    func markReadHelp(_ title: String) -> String {
+        "确认已查看 Codex 结果：\(title)"
+    }
+
+    var startFocusHelp: String {
+        "开始 25 分钟专注计时"
+    }
+
+    var stopFocusHelp: String {
+        "停止当前专注计时"
+    }
+
+    var openNoteHelp: String {
+        "打开右下角便签和待办面板"
+    }
+
+    func findingTitle(_ id: String, fallback: String) -> String {
+        switch id {
+        case "app-server", "app-server-status":
+            return "本地 app-server"
+        case "app-server-rate-limits":
+            return "实时配额"
+        case "app-server-threads":
+            return "本地线程"
+        case "exec-json":
+            return "Junimo 启动任务"
+        case "cloud-list":
+            return "云端任务"
+        case "analytics":
+            return "历史用量"
+        case "auth":
+            return "认证"
+        case "network":
+            return "网络"
+        case "app-server-realtime":
+            return "实时事件"
+        default:
+            return fallback
+        }
+    }
 }
 
 private struct PixelSprite: View {

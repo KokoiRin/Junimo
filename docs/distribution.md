@@ -15,17 +15,6 @@ URL, without using the GitHub API, installs `Junimo.app` into `/Applications`
 when writable, falls back to `~/Applications`, and verifies that the launched
 process remains alive for a short stability window.
 
-Installed apps can check for updates from the Junimo menu bar item. The first
-self-update slice exposes `Check for Updates...`; if the latest GitHub Release
-tag is newer than the running bundle version, the menu changes to
-`Install Update...` and starts an external updater for the current app location.
-
-Command-line fallback:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/KokoiRin/Junimo/main/scripts/update_latest.sh | bash
-```
-
 Useful overrides:
 
 ```bash
@@ -34,7 +23,6 @@ JUNIMO_REPO="KokoiRin/Junimo" scripts/install_latest.sh
 JUNIMO_ASSET_NAME="Junimo-macos-arm64.zip" scripts/install_latest.sh
 JUNIMO_NO_OPEN=1 scripts/install_latest.sh
 JUNIMO_LAUNCH_VERIFY_SECONDS=15 scripts/install_latest.sh
-JUNIMO_DRY_RUN=1 scripts/update_latest.sh
 ```
 
 If launch succeeds briefly and then exits, collect diagnostics with:
@@ -46,6 +34,31 @@ scripts/collect_launch_diagnostics.sh
 The collector writes a desktop diagnostics directory containing launch
 breadcrumbs, the health file, screenshot-agent logs, process information, and
 recent Junimo/AppKit system log lines.
+
+## Activity Capture
+
+Activity screenshot capture is intentionally outside `Junimo.app`. Install the
+background LaunchAgent when captures are needed:
+
+```bash
+scripts/install_activity_capture_agent.sh
+```
+
+The agent runs the Python capture script with macOS `screencapture`, so screen
+recording permission belongs to the background script process rather than the
+Junimo menu bar app.
+
+Captures are written to:
+
+```text
+~/Documents/JunimoActivityCaptures/<yyyy-mm-dd>/
+```
+
+For a foreground loop while debugging, run:
+
+```bash
+scripts/start_activity_capture_loop.command
+```
 
 ## Build Local Artifacts
 

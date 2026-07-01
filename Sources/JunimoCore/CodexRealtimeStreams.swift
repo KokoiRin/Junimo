@@ -26,6 +26,7 @@ public final class ProcessCodexAppServerEventStream: CodexRealtimeEventStreaming
         onEvent: @escaping (CodexRealtimeEvent) -> Void,
         onFinished: @escaping (CodexIntegrationFinding?) -> Void
     ) {
+        BrokenPipeGuard.install()
         lock.lock()
         if process != nil {
             lock.unlock()
@@ -218,8 +219,18 @@ public final class ProcessCodexAppServerEventStream: CodexRealtimeEventStreaming
         lock.lock()
         let handle = stdinPipe?.fileHandleForWriting
         lock.unlock()
-        if let data = line.data(using: .utf8) {
-            try? handle?.write(contentsOf: data)
+        guard let data = line.data(using: .utf8), let handle else {
+            return
+        }
+        if !BrokenPipeGuard.write(data, to: handle) {
+            finish(
+                CodexIntegrationFinding(
+                    id: "app-server-realtime",
+                    title: "Realtime Codex events",
+                    status: .degraded,
+                    detail: "Codex realtime stream disconnected while Junimo was writing to it."
+                )
+            )
         }
     }
 

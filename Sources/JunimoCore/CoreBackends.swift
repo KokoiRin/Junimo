@@ -292,7 +292,7 @@ public final class SwiftFallbackCore: ActionCore, PomodoroCore, CommandCatalogCo
         switch density {
         case .comfortable:
             preferences.expandedWidth = 760
-            preferences.expandedHeight = 300
+            preferences.expandedHeight = 340
         case .compact:
             preferences.expandedWidth = 700
             preferences.expandedHeight = 470

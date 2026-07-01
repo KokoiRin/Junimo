@@ -125,6 +125,19 @@ Junimo requests a top-center floating `NSPanel` position using the full screen f
 
 For real menu bar presence, Junimo also installs an `NSStatusItem` with Show and Quit commands. A status item is system-positioned in the menu bar rather than freely centered under the notch.
 
+## Main Panel Surface
+
+The expanded panel is a Chinese module surface instead of a single dense
+dashboard. `JunimoSurfaceView` owns only presentation state for the selected
+page; feature state still comes from `TaskCoordinator` projections. The current
+tabs are Codex, Focus, Note, and Screenshot. This keeps each module readable and
+prevents detached capabilities, such as the background screenshot script, from
+looking like app-owned controls.
+
+Visible labels are centralized in `JunimoSurfaceCopy.simplifiedChinese`. Future
+language switching should add another copy bundle or locale selector rather
+than scattering string literals through the SwiftUI layout.
+
 ## Next Feature Scale
 
 The tool should grow through feature modules and adapters:
