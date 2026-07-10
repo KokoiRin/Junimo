@@ -26,6 +26,7 @@ See [AGENTS.md](AGENTS.md) for the repository instructions and language boundary
 - Focus supports 15, 25, and 45 minute starts.
 - Focus can pause, resume, reset, complete, and hand off to a 5 minute break.
 - Break can complete or be skipped back to the next focus setup.
+- Focus and break completion show a temporary macOS notification with sound.
 - The app bundle includes both `Junimo` and `junimo-backend`.
 - Legacy Swift/C++ feature code has been removed from the active tree.
 
@@ -40,8 +41,9 @@ focus running -> focus completed -> break running -> break completed
 break running -> focus idle
 ```
 
-Completion is visible in the notch panel state. Native system notifications are
-not part of this slice.
+Completion is visible in the notch panel state. While Junimo is running, Swift
+observes the backend transition into `completed` and invokes macOS
+`osascript display notification`; repeated snapshots do not repeat the banner.
 
 ## Build And Test
 

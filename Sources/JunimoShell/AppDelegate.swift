@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import JunimoCore
 
 @MainActor
@@ -7,6 +8,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: NotchPanelController?
     private var statusItem: NSStatusItem?
     private var lifecycleWindow: NSWindow?
+    private var pomodoroObservation: AnyCancellable?
+    private var completionNotificationGate = PomodoroCompletionNotificationGate()
+    private let notificationService = MacPomodoroNotificationService()
     private var allowsTermination = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -20,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let state = ShellState()
         shellState = state
+        observePomodoroCompletion(in: state)
         state.start()
 
         let controller = NotchPanelController(state: state)
@@ -41,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        pomodoroObservation?.cancel()
+        pomodoroObservation = nil
         shellState?.stop()
         lifecycleWindow?.close()
         lifecycleWindow = nil
@@ -68,6 +75,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.items.forEach { $0.target = self }
         item.menu = menu
         statusItem = item
+    }
+
+    private func observePomodoroCompletion(in state: ShellState) {
+        pomodoroObservation = state.$surfaceState
+            .map(\.pomodoro)
+            .sink { [weak self] snapshot in
+                guard let self,
+                      let mode = completionNotificationGate.observe(snapshot) else { return }
+                notificationService.notifyCompletion(for: mode)
+            }
     }
 
     private func installLifecycleAnchorWindow() {

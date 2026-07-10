@@ -63,4 +63,35 @@ expect(
     "Collapsed notch should keep its minimum height when the menu bar inset is hidden"
 )
 
+var completionGate = PomodoroCompletionNotificationGate()
+let initialCompletion = completionGate.observe(
+    PomodoroSnapshot(mode: .focus, status: .completed, remainingSeconds: 0)
+)
+expect(initialCompletion == nil, "Connecting to an already completed timer should not replay an old notification")
+
+completionGate = PomodoroCompletionNotificationGate()
+_ = completionGate.observe(PomodoroSnapshot(mode: .focus, status: .running, remainingSeconds: 1))
+let focusCompletion = completionGate.observe(
+    PomodoroSnapshot(mode: .focus, status: .completed, remainingSeconds: 0)
+)
+expect(focusCompletion == .focus, "A running focus timer becoming completed should request a focus notification")
+let repeatedFocusCompletion = completionGate.observe(
+    PomodoroSnapshot(mode: .focus, status: .completed, remainingSeconds: 0)
+)
+expect(repeatedFocusCompletion == nil, "Repeated completed snapshots should not duplicate a notification")
+
+completionGate = PomodoroCompletionNotificationGate()
+_ = completionGate.observe(PomodoroSnapshot(mode: .focus, status: .running, remainingSeconds: 1))
+let unrelatedBreakCompletion = completionGate.observe(
+    PomodoroSnapshot(mode: .rest, status: .completed, remainingSeconds: 0)
+)
+expect(unrelatedBreakCompletion == nil, "Changing modes must not fabricate a completion transition")
+
+completionGate = PomodoroCompletionNotificationGate()
+_ = completionGate.observe(PomodoroSnapshot(mode: .rest, status: .paused, remainingSeconds: 1))
+let breakCompletion = completionGate.observe(
+    PomodoroSnapshot(mode: .rest, status: .completed, remainingSeconds: 0)
+)
+expect(breakCompletion == .rest, "A paused break becoming completed should request a break notification")
+
 print("JunimoCore shell DTO smoke tests passed")
