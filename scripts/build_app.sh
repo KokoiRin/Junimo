@@ -13,8 +13,11 @@ SWIFT_TARGET="${SWIFT_TARGET:-arm64-apple-macosx${DEPLOYMENT_TARGET}}"
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$FRAMEWORKS_DIR" "$RESOURCES_DIR" "$BUILD_DIR"
+mkdir -p "$BUILD_DIR/module-cache"
 
-MACOSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET" "$ROOT_DIR/scripts/build_core_bridge.sh" "$FRAMEWORKS_DIR" >/dev/null
+export GOCACHE="$ROOT_DIR/.build/go-build-cache"
+MACOSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET" \
+  go build -o "$MACOS_DIR/junimo-backend" "$ROOT_DIR/backend/cmd/junimo-backend"
 
 swiftc \
   -target "$SWIFT_TARGET" \
@@ -22,9 +25,8 @@ swiftc \
   -emit-library \
   -emit-module \
   -module-name JunimoCore \
-  "$ROOT_DIR"/Sources/JunimoCore/*.swift \
-  -L "$FRAMEWORKS_DIR" \
-  -ljunimo_core_bridge \
+  "$ROOT_DIR"/Sources/JunimoShellCore/*.swift \
+  -module-cache-path "$BUILD_DIR/module-cache" \
   -emit-module-path "$BUILD_DIR/JunimoCore.swiftmodule" \
   -o "$FRAMEWORKS_DIR/libJunimoCore.dylib" \
   -Xlinker -install_name \
@@ -37,13 +39,12 @@ swiftc \
   -I "$BUILD_DIR" \
   -L "$FRAMEWORKS_DIR" \
   -lJunimoCore \
-  -ljunimo_core_bridge \
-  "$ROOT_DIR"/Sources/Junimo/*.swift \
+  -module-cache-path "$BUILD_DIR/module-cache" \
+  "$ROOT_DIR"/Sources/JunimoShell/*.swift \
   -o "$MACOS_DIR/Junimo" \
   -framework AppKit \
   -framework SwiftUI \
   -framework Combine \
-  -framework UserNotifications \
   -Xlinker -rpath \
   -Xlinker "@executable_path/../Frameworks"
 
@@ -57,7 +58,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <key>CFBundleExecutable</key>
   <string>Junimo</string>
   <key>CFBundleIdentifier</key>
-  <string>local.junimo.desktop</string>
+  <string>local.junimo.shell</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
@@ -80,8 +81,23 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 </plist>
 PLIST
 
-if [[ -d "$ROOT_DIR/Sources/Junimo/Resources" ]]; then
-  cp "$ROOT_DIR"/Sources/Junimo/Resources/* "$RESOURCES_DIR"/
+printf 'APPL????' > "$CONTENTS_DIR/PkgInfo"
+
+if [[ -d "$ROOT_DIR/Sources/JunimoShell/Resources" ]]; then
+  cp "$ROOT_DIR"/Sources/JunimoShell/Resources/* "$RESOURCES_DIR"/
+fi
+
+find "$APP_DIR" -name '._*' -delete
+xattr -cr "$APP_DIR" 2>/dev/null || true
+xattr -d com.apple.FinderInfo "$APP_DIR" 2>/dev/null || true
+xattr -d 'com.apple.fileprovider.fpfs#P' "$APP_DIR" 2>/dev/null || true
+if codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1; then
+  xattr -d com.apple.FinderInfo "$APP_DIR" 2>/dev/null || true
+  xattr -d 'com.apple.fileprovider.fpfs#P' "$APP_DIR" 2>/dev/null || true
+  codesign --verify --deep --strict --verbose=2 "$APP_DIR" >/dev/null
+else
+  rm -rf "$CONTENTS_DIR/_CodeSignature"
+  echo "warning: skipped ad-hoc app signing because local macOS xattrs could not be cleared" >&2
 fi
 
 echo "$APP_DIR"

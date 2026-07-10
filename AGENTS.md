@@ -1,0 +1,39 @@
+# Junimo Agent 指南
+
+## 语言边界
+
+Junimo 正在围绕一个收窄后的产品边界重建：
+
+- Swift 只负责 macOS 外壳：AppKit 生命周期、菜单栏入口、顶部中央刘海面板、悬停展开、视觉渲染和用户意图发送。
+- Go 负责产品行为：番茄钟状态、未来的任务与会话生命周期、持久化、后端适配器以及所有业务规则。
+- Swift 不得实现产品状态机，只能渲染后端快照并发送类型化意图。
+- Go 不得感知 AppKit、SwiftUI 布局、`NSPanel` 定位或菜单栏行为。
+
+## 当前垂直切片
+
+当前活跃链路为：
+
+```text
+Swift 刘海外壳 -> Go HTTP 后端 -> 番茄钟与 Codex 用量快照
+```
+
+后端二进制名为 `junimo-backend`。应用会从 App Bundle 中启动它，本地开发时也可以从 `.build/direct` 启动。
+
+## 活跃代码范围
+
+当前构建只使用：
+
+- `Sources/JunimoShell`
+- `Sources/JunimoShellCore`
+- `backend`
+
+活跃代码树中不应重新引入旧 Swift 功能文件。如果从 Git 历史恢复旧业务代码，在新的 Go 后端契约建立之前，不得把它接回当前构建。
+
+## 验证规则
+
+- 禁止调用 Computer Use 验证 Junimo。
+- 不得使用 Computer Use 移动鼠标、检查应用界面或截取屏幕。
+- 聚焦测试优先运行 `scripts/test.sh`，完整本地验证优先运行 `scripts/verify_ci.sh`。
+- 需要运行时证据时，通过本机后端的 `/health` 和 `/state` 接口验证。
+- 需要视觉证据时，只读查询 Junimo 窗口边界，直接截取 Junimo 目标窗口，再使用图像查看工具检查；不要使用桌面自动化。
+- 不得仅为了验证 Junimo 而启动、聚焦或操作无关应用。

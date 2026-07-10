@@ -10,14 +10,17 @@ let package = Package(
     ],
     dependencies: [],
     targets: [
-        .target(name: "JunimoCore"),
+        .target(name: "JunimoCore", path: "Sources/JunimoShellCore"),
         .executableTarget(
             name: "Junimo",
-            dependencies: ["JunimoCore"]
+            dependencies: ["JunimoCore"],
+            path: "Sources/JunimoShell",
+            resources: [.copy("Resources")]
         ),
         .testTarget(
             name: "JunimoTests",
-            dependencies: ["JunimoCore"]
+            dependencies: ["JunimoCore"],
+            path: "Tests/JunimoDirectTests"
         )
     ]
 )
