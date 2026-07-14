@@ -79,10 +79,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func observePomodoroCompletion(in state: ShellState) {
         pomodoroObservation = state.$surfaceState
-            .map(\.pomodoro)
-            .sink { [weak self] snapshot in
+            .map(\.pomodoro.completionEvent)
+            .sink { [weak self] event in
                 guard let self,
-                      let mode = completionNotificationGate.observe(snapshot) else { return }
+                      let mode = completionNotificationGate.observe(event) else { return }
                 notificationService.notifyCompletion(for: mode)
             }
     }

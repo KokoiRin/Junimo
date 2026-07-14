@@ -12,22 +12,36 @@ public enum PomodoroStatus: String, Codable, Equatable {
     case completed
 }
 
+// PomodoroCompletionEvent 表示 Go 状态机确认的一次完成事实，稳定 ID 供 macOS 外壳去重投递。
+public struct PomodoroCompletionEvent: Codable, Equatable {
+    public var id: UInt64
+    public var mode: PomodoroMode
+
+    public init(id: UInt64, mode: PomodoroMode) {
+        self.id = id
+        self.mode = mode
+    }
+}
+
 public struct PomodoroSnapshot: Codable, Equatable {
     public var mode: PomodoroMode
     public var status: PomodoroStatus
     public var remainingSeconds: Int
     public var focusDurationSeconds: Int
+    public var completionEvent: PomodoroCompletionEvent?
 
     public init(
         mode: PomodoroMode = .focus,
         status: PomodoroStatus = .idle,
         remainingSeconds: Int = 25 * 60,
-        focusDurationSeconds: Int = 25 * 60
+        focusDurationSeconds: Int = 25 * 60,
+        completionEvent: PomodoroCompletionEvent? = nil
     ) {
         self.mode = mode
         self.status = status
         self.remainingSeconds = remainingSeconds
         self.focusDurationSeconds = focusDurationSeconds
+        self.completionEvent = completionEvent
     }
 }
 
@@ -85,21 +99,28 @@ public struct CodexUsageSnapshot: Codable, Equatable {
 }
 
 public struct SurfaceState: Codable, Equatable {
+    // revision 表示 Go 组合快照的单调时序，用于防止晚到响应回退界面状态。
+    public var revision: UInt64
     public var pomodoro: PomodoroSnapshot
     public var codex: CodexUsageSnapshot?
 
-    public init(pomodoro: PomodoroSnapshot = PomodoroSnapshot(), codex: CodexUsageSnapshot? = nil) {
+    public init(
+        revision: UInt64 = 0,
+        pomodoro: PomodoroSnapshot = PomodoroSnapshot(),
+        codex: CodexUsageSnapshot? = nil
+    ) {
+        self.revision = revision
         self.pomodoro = pomodoro
         self.codex = codex
     }
 }
 
-public struct BackendIntent: Codable, Equatable {
-    public var type: String
-    public var durationSeconds: Int?
-
-    public init(type: String, durationSeconds: Int? = nil) {
-        self.type = type
-        self.durationSeconds = durationSeconds
-    }
+// PomodoroIntent 表示 Swift 外壳可发送的全部番茄钟用户意图，关联值固定每种动作的参数形状。
+public enum PomodoroIntent: Equatable {
+    case startFocus(durationSeconds: Int)
+    case pause
+    case resume
+    case reset
+    case startBreak
+    case skipBreak
 }

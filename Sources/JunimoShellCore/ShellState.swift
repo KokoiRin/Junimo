@@ -11,6 +11,8 @@ public final class ShellState: ObservableObject {
 
     private let backend: ShellBackendClient
     private var refreshTask: Task<Void, Never>?
+    // latestRevision 记录已渲染的最新 Go 快照序号，使轮询与意图响应可以安全乱序到达。
+    private var latestRevision: UInt64?
 
     public init(backend: ShellBackendClient = GoBackendClient()) {
         self.backend = backend
@@ -23,12 +25,13 @@ public final class ShellState: ObservableObject {
 
     public func start() {
         refreshTask?.cancel()
+        latestRevision = nil
         refreshTask = Task { [weak self] in
             guard let self else { return }
             do {
                 try await backend.start()
                 backendMessage = "Connected"
-                surfaceState = try await backend.loadState()
+                accept(try await backend.loadState())
                 await pollBackend()
             } catch {
                 backendMessage = "Backend unavailable"
@@ -52,37 +55,37 @@ public final class ShellState: ObservableObject {
 
     public func startFocus(durationSeconds: Int = 25 * 60) {
         Task {
-            await applyIntent(BackendIntent(type: "pomodoro.startFocus", durationSeconds: durationSeconds))
+            await applyIntent(.startFocus(durationSeconds: durationSeconds))
         }
     }
 
     public func pausePomodoro() {
         Task {
-            await applyIntent(BackendIntent(type: "pomodoro.pause"))
+            await applyIntent(.pause)
         }
     }
 
     public func resumePomodoro() {
         Task {
-            await applyIntent(BackendIntent(type: "pomodoro.resume"))
+            await applyIntent(.resume)
         }
     }
 
     public func resetPomodoro() {
         Task {
-            await applyIntent(BackendIntent(type: "pomodoro.reset"))
+            await applyIntent(.reset)
         }
     }
 
     public func startBreak() {
         Task {
-            await applyIntent(BackendIntent(type: "pomodoro.startBreak"))
+            await applyIntent(.startBreak)
         }
     }
 
     public func skipBreak() {
         Task {
-            await applyIntent(BackendIntent(type: "pomodoro.skipBreak"))
+            await applyIntent(.skipBreak)
         }
     }
 
@@ -92,9 +95,9 @@ public final class ShellState: ObservableObject {
         expansionDidChange?(expanded)
     }
 
-    private func applyIntent(_ intent: BackendIntent) async {
+    private func applyIntent(_ intent: PomodoroIntent) async {
         do {
-            surfaceState = try await backend.sendIntent(intent)
+            accept(try await backend.sendIntent(intent))
             backendMessage = "Connected"
         } catch {
             backendMessage = "Backend unavailable"
@@ -104,12 +107,21 @@ public final class ShellState: ObservableObject {
     private func pollBackend() async {
         while !Task.isCancelled {
             do {
-                surfaceState = try await backend.loadState()
+                accept(try await backend.loadState())
                 backendMessage = "Connected"
             } catch {
                 backendMessage = "Backend unavailable"
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
+    }
+
+    // accept 只接受首份或 revision 严格更大的 Go 快照，相等与更旧响应均不得覆盖 UI。
+    private func accept(_ snapshot: SurfaceState) {
+        if let latestRevision, snapshot.revision <= latestRevision {
+            return
+        }
+        latestRevision = snapshot.revision
+        surfaceState = snapshot
     }
 }

@@ -41,9 +41,9 @@ focus running -> focus completed -> break running -> break completed
 break running -> focus idle
 ```
 
-Completion is visible in the notch panel state. While Junimo is running, Swift
-observes the backend transition into `completed` and invokes macOS
-`osascript display notification`; repeated snapshots do not repeat the banner.
+Completion is visible in the notch panel state. Go publishes a stable completion
+event ID when a focus or break first reaches `completed`; Swift only deduplicates
+that event ID before invoking macOS `osascript display notification`.
 
 ## Build And Test
 
@@ -60,6 +60,10 @@ scripts/test.sh
 scripts/build_app.sh
 scripts/run.sh
 ```
+
+`scripts/test.sh` runs the Go behavior suite, Swift DTO and shell-state tests,
+a real Swift-to-Go HTTP contract test, and an offscreen SwiftUI regression test
+for the expanded panel shape.
 
 The smoke test build writes:
 
@@ -86,6 +90,10 @@ GET  /health
 GET  /state
 POST /intent
 ```
+
+Protocol version 3 snapshots carry a monotonically increasing `revision` so
+Swift can ignore late responses. Pomodoro snapshots also keep the latest
+Go-owned `completionEvent` with a stable numeric ID.
 
 Current intents:
 

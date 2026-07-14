@@ -200,7 +200,6 @@ struct JunimoSurfaceView: View {
             TopAttachedPanelShape(bottomRadius: 22)
                 .stroke(.white.opacity(0.12), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.38), radius: 24, x: 0, y: 14)
     }
 
     private var appIcon: some View {

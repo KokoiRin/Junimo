@@ -4,7 +4,7 @@ public protocol ShellBackendClient: AnyObject {
     func start() async throws
     func stop()
     func loadState() async throws -> SurfaceState
-    func sendIntent(_ intent: BackendIntent) async throws -> SurfaceState
+    func sendIntent(_ intent: PomodoroIntent) async throws -> SurfaceState
 }
 
 public final class GoBackendClient: ShellBackendClient {
@@ -13,7 +13,32 @@ public final class GoBackendClient: ShellBackendClient {
         var protocolVersion: Int
     }
 
-    private static let supportedProtocolVersion = 2
+    // BackendIntentRequest 只在 HTTP adapter 内把类型化意图映射为 Go wire contract。
+    private struct BackendIntentRequest: Encodable {
+        var type: String
+        var durationSeconds: Int?
+
+        // 将一个合法产品意图转成唯一的 HTTP 请求形状。
+        init(intent: PomodoroIntent) {
+            switch intent {
+            case let .startFocus(durationSeconds):
+                type = "pomodoro.startFocus"
+                self.durationSeconds = durationSeconds
+            case .pause:
+                type = "pomodoro.pause"
+            case .resume:
+                type = "pomodoro.resume"
+            case .reset:
+                type = "pomodoro.reset"
+            case .startBreak:
+                type = "pomodoro.startBreak"
+            case .skipBreak:
+                type = "pomodoro.skipBreak"
+            }
+        }
+    }
+
+    private static let supportedProtocolVersion = 3
 
     private let port: Int
     private var process: Process?
@@ -45,7 +70,11 @@ public final class GoBackendClient: ShellBackendClient {
     }
 
     public func stop() {
-        process?.terminate()
+        if let process, process.isRunning {
+            // 显式等待本 client 启动的 Go 子进程退出，避免应用或测试紧接着结束时遗留后端。
+            process.terminate()
+            process.waitUntilExit()
+        }
         process = nil
     }
 
@@ -55,11 +84,11 @@ public final class GoBackendClient: ShellBackendClient {
         return try JSONDecoder().decode(SurfaceState.self, from: data)
     }
 
-    public func sendIntent(_ intent: BackendIntent) async throws -> SurfaceState {
+    public func sendIntent(_ intent: PomodoroIntent) async throws -> SurfaceState {
         var request = URLRequest(url: baseURL.appendingPathComponent("intent"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(intent)
+        request.httpBody = try JSONEncoder().encode(BackendIntentRequest(intent: intent))
 
         let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response)

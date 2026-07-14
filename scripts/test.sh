@@ -36,4 +36,45 @@ swiftc \
 
 "$BUILD_DIR/JunimoCoreSmokeTests"
 
+swiftc \
+  -I "$BUILD_DIR" \
+  -L "$BUILD_DIR" \
+  -lJunimoCore \
+  -module-cache-path "$BUILD_DIR/module-cache" \
+  "$ROOT_DIR"/Tests/JunimoStateTests/main.swift \
+  -o "$BUILD_DIR/JunimoStateTests" \
+  -framework Combine \
+  -Xlinker -rpath \
+  -Xlinker "$BUILD_DIR"
+
+"$BUILD_DIR/JunimoStateTests"
+
+swiftc \
+  -I "$BUILD_DIR" \
+  -L "$BUILD_DIR" \
+  -lJunimoCore \
+  -module-cache-path "$BUILD_DIR/module-cache" \
+  "$ROOT_DIR"/Tests/JunimoBackendContractTests/main.swift \
+  -o "$BUILD_DIR/JunimoBackendContractTests" \
+  -Xlinker -rpath \
+  -Xlinker "$BUILD_DIR"
+
+"$BUILD_DIR/JunimoBackendContractTests" "$BUILD_DIR/junimo-backend"
+
+swiftc \
+  -I "$BUILD_DIR" \
+  -L "$BUILD_DIR" \
+  -lJunimoCore \
+  -module-cache-path "$BUILD_DIR/module-cache" \
+  "$ROOT_DIR"/Sources/JunimoShell/JunimoSurfaceView.swift \
+  "$ROOT_DIR"/Tests/JunimoVisualTests/main.swift \
+  -o "$BUILD_DIR/JunimoVisualTests" \
+  -framework AppKit \
+  -framework SwiftUI \
+  -framework Combine \
+  -Xlinker -rpath \
+  -Xlinker "$BUILD_DIR"
+
+"$BUILD_DIR/JunimoVisualTests"
+
 echo "Junimo shell smoke tests passed"

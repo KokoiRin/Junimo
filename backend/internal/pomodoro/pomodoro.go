@@ -21,29 +21,39 @@ const (
 	ModeBreak Mode = "break"
 )
 
+// CompletionEvent 表示 Go 状态机确认的一次番茄钟完成事实，稳定 ID 供外壳去重投递系统通知。
+type CompletionEvent struct {
+	ID   uint64 `json:"id"`
+	Mode Mode   `json:"mode"`
+}
+
+// Snapshot 表示调用方可观察的完整番茄钟状态及最近一次完成事件。
 type Snapshot struct {
-	Mode                 Mode    `json:"mode"`
-	Status               Status  `json:"status"`
-	DurationSeconds      int64   `json:"durationSeconds"`
-	RemainingSeconds     int64   `json:"remainingSeconds"`
-	FocusDurationSeconds int64   `json:"focusDurationSeconds"`
-	BreakDurationSeconds int64   `json:"breakDurationSeconds"`
-	StartedAt            *string `json:"startedAt,omitempty"`
-	EndsAt               *string `json:"endsAt,omitempty"`
+	Mode                 Mode             `json:"mode"`
+	Status               Status           `json:"status"`
+	DurationSeconds      int64            `json:"durationSeconds"`
+	RemainingSeconds     int64            `json:"remainingSeconds"`
+	FocusDurationSeconds int64            `json:"focusDurationSeconds"`
+	BreakDurationSeconds int64            `json:"breakDurationSeconds"`
+	StartedAt            *string          `json:"startedAt,omitempty"`
+	EndsAt               *string          `json:"endsAt,omitempty"`
+	CompletionEvent      *CompletionEvent `json:"completionEvent,omitempty"`
 }
 
 type Clock func() time.Time
 
 type Timer struct {
-	mu        sync.Mutex
-	clock     Clock
-	mode      Mode
-	duration  time.Duration
-	remaining time.Duration
-	focus     time.Duration
-	breakTime time.Duration
-	startedAt time.Time
-	status    Status
+	mu                 sync.Mutex
+	clock              Clock
+	mode               Mode
+	duration           time.Duration
+	remaining          time.Duration
+	focus              time.Duration
+	breakTime          time.Duration
+	startedAt          time.Time
+	status             Status
+	completionSequence uint64
+	lastCompletion     CompletionEvent
 }
 
 func NewTimer(clock Clock) *Timer {
@@ -177,6 +187,8 @@ func (timer *Timer) snapshotLocked(now time.Time) Snapshot {
 		end := timer.startedAt.Add(timer.remaining)
 		if !now.Before(end) {
 			timer.status = StatusCompleted
+			timer.completionSequence++
+			timer.lastCompletion = CompletionEvent{ID: timer.completionSequence, Mode: timer.mode}
 			remainingDuration = 0
 		} else {
 			remainingDuration = end.Sub(now)
@@ -199,6 +211,12 @@ func (timer *Timer) snapshotLocked(now time.Time) Snapshot {
 		}
 	}
 
+	var completionEvent *CompletionEvent
+	if timer.completionSequence > 0 {
+		event := timer.lastCompletion
+		completionEvent = &event
+	}
+
 	return Snapshot{
 		Mode:                 timer.mode,
 		Status:               timer.status,
@@ -208,5 +226,6 @@ func (timer *Timer) snapshotLocked(now time.Time) Snapshot {
 		BreakDurationSeconds: int64(timer.breakTime.Seconds()),
 		StartedAt:            startedAt,
 		EndsAt:               endsAt,
+		CompletionEvent:      completionEvent,
 	}
 }
