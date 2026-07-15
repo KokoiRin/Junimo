@@ -1,5 +1,5 @@
 import Foundation
-import JunimoCore
+@testable import JunimoCore
 
 func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
     if !condition() {
@@ -87,6 +87,44 @@ let codexJSON = """
 
 let stateWithCodex = try JSONDecoder().decode(SurfaceState.self, from: Data(codexJSON.utf8))
 expect(stateWithCodex.codex?.compactSummary == "5h 94%", "Collapsed quota should omit the Codex label and show the primary five-hour window")
+
+// 后端返回一条未完成和一条已完成 Todo 时，Swift 应保留稳定 ID、顺序与状态；旧快照缺少 Todo 节点时则降级为空列表。
+let todoJSON = """
+{
+  "revision": 4,
+  "pomodoro": {
+    "mode": "focus",
+    "status": "idle",
+    "remainingSeconds": 1500,
+    "focusDurationSeconds": 1500
+  },
+  "todo": {
+    "status": "available",
+    "items": [
+      {"id": "todo-2", "title": "实现页面", "status": "open"},
+      {"id": "todo-1", "title": "完成设计", "status": "completed"}
+    ]
+  }
+}
+"""
+let stateWithTodo = try JSONDecoder().decode(SurfaceState.self, from: Data(todoJSON.utf8))
+expect(stateWithTodo.todo.items.map(\.id) == ["todo-2", "todo-1"], "Todo decoding should preserve backend order and stable IDs")
+expect(stateWithTodo.todo.items.map(\.status) == [.open, .completed], "Todo decoding should preserve explicit completion states")
+expect(state.todo == TodoSnapshot(), "Snapshots without Todo should decode as an empty loading-safe Todo snapshot")
+
+// 四种类型化 Todo 意图编码后应分别只携带 Go 合约规定的 title、id 或 completed 字段，不能泄露其他动作参数。
+let todoRequests: [(ProductIntent, String)] = [
+    (.todo(.create(title: "写测试")), #"{"title":"写测试","type":"todo.create"}"#),
+    (.todo(.rename(id: "1", title: "改标题")), #"{"id":"1","title":"改标题","type":"todo.rename"}"#),
+    (.todo(.setCompletion(id: "1", completed: true)), #"{"completed":true,"id":"1","type":"todo.setCompletion"}"#),
+    (.todo(.delete(id: "1")), #"{"id":"1","type":"todo.delete"}"#)
+]
+for (intent, expectedJSON) in todoRequests {
+    let encoded = try JSONEncoder().encode(BackendIntentRequest(intent: intent))
+    let object = try JSONSerialization.jsonObject(with: encoded) as! NSDictionary
+    let expected = try JSONSerialization.jsonObject(with: Data(expectedJSON.utf8)) as! NSDictionary
+    expect(object == expected, "Typed Todo request \(intent) should encode its unique Go wire shape")
+}
 
 // 用量分别处于 loading、unavailable 和 available 但缺少主窗口时，短文案应稳定降级为省略号或破折号，不能伪造百分比。
 expect(CodexUsageSnapshot(status: .loading).compactSummary == "…", "Loading quota should stay compact and not invent a number")

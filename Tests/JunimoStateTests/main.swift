@@ -10,7 +10,7 @@ enum FakeBackendError: Error {
 final class FakeBackend: ShellBackendClient {
     private let lock = NSLock()
     private var state: SurfaceState
-    private var intents: [PomodoroIntent] = []
+    private var intents: [ProductIntent] = []
     private var stopped = false
     var failsToStart = false
     var failsIntents = false
@@ -40,7 +40,7 @@ final class FakeBackend: ShellBackendClient {
     }
 
     // 记录类型化意图并返回当前确定快照。
-    func sendIntent(_ intent: PomodoroIntent) async throws -> SurfaceState {
+    func sendIntent(_ intent: ProductIntent) async throws -> SurfaceState {
         if failsIntents {
             throw FakeBackendError.unavailable
         }
@@ -51,7 +51,7 @@ final class FakeBackend: ShellBackendClient {
     }
 
     // 返回壳层已经发送的全部类型化意图。
-    func recordedIntents() -> [PomodoroIntent] {
+    func recordedIntents() -> [ProductIntent] {
         lock.lock()
         defer { lock.unlock() }
         return intents
@@ -109,8 +109,8 @@ final class OutOfOrderBackend: ShellBackendClient {
     }
 
     // pause 意图立即返回 revision 3，确保它比挂起的轮询快照更新。
-    func sendIntent(_ intent: PomodoroIntent) async throws -> SurfaceState {
-        guard intent == .pause else { throw FakeBackendError.unavailable }
+    func sendIntent(_ intent: ProductIntent) async throws -> SurfaceState {
+        guard intent == .pomodoro(.pause) else { throw FakeBackendError.unavailable }
         return SurfaceState(
             revision: 3,
             pomodoro: PomodoroSnapshot(mode: .focus, status: .paused, remainingSeconds: 60)
@@ -173,13 +173,13 @@ func testShellStateLoadsBackendAndMapsUserIntents() async {
     }
 
     // 依次触发界面暴露的六种操作时，fake 后端收到的类型和可选时长应与 Go HTTP 合约逐项一致。
-    let expected: [(PomodoroIntent, () -> Void)] = [
-        (.startFocus(durationSeconds: 900), { state.startFocus(durationSeconds: 900) }),
-        (.pause, { state.pausePomodoro() }),
-        (.resume, { state.resumePomodoro() }),
-        (.reset, { state.resetPomodoro() }),
-        (.startBreak, { state.startBreak() }),
-        (.skipBreak, { state.skipBreak() })
+    let expected: [(ProductIntent, () -> Void)] = [
+        (.pomodoro(.startFocus(durationSeconds: 900)), { state.startFocus(durationSeconds: 900) }),
+        (.pomodoro(.pause), { state.pausePomodoro() }),
+        (.pomodoro(.resume), { state.resumePomodoro() }),
+        (.pomodoro(.reset), { state.resetPomodoro() }),
+        (.pomodoro(.startBreak), { state.startBreak() }),
+        (.pomodoro(.skipBreak), { state.skipBreak() })
     ]
     for (index, item) in expected.enumerated() {
         item.1()
@@ -206,6 +206,72 @@ func testShellStateLoadsBackendAndMapsUserIntents() async {
     state.stop()
     if !backend.wasStopped() {
         fail("stop should release the backend process")
+    }
+}
+
+// Todo 页面依次新增、改名、完成和删除时，ShellState 应发送四种独立类型化意图，并只接受 fake 返回的后端快照作为正式列表。
+@MainActor
+func testShellStateMapsTodoIntentsAndKeepsBackendAuthoritative() async {
+    let backendSnapshot = SurfaceState(
+        revision: 8,
+        todo: TodoSnapshot(items: [TodoItem(id: "server-1", title: "后端事实", status: .open)])
+    )
+    let backend = FakeBackend(state: backendSnapshot)
+    let state = ShellState(backend: backend)
+
+    let created = await state.createTodo(title: "本地草稿")
+    let renamed = await state.renameTodo(id: "server-1", title: "新标题")
+    let completed = await state.setTodoCompletion(id: "server-1", completed: true)
+    let deleted = await state.deleteTodo(id: "server-1")
+
+    if !created || !renamed || !completed || !deleted {
+        fail("successful Todo calls should report success")
+    }
+    let expected: [ProductIntent] = [
+        .todo(.create(title: "本地草稿")),
+        .todo(.rename(id: "server-1", title: "新标题")),
+        .todo(.setCompletion(id: "server-1", completed: true)),
+        .todo(.delete(id: "server-1"))
+    ]
+    if backend.recordedIntents() != expected {
+        fail("Todo intents = \(backend.recordedIntents()), want \(expected)")
+    }
+    if state.surfaceState.todo != backendSnapshot.todo {
+        fail("Swift must render the backend Todo snapshot instead of mutating a local list")
+    }
+}
+
+// 指针离开已展开面板但文本编辑仍活跃时，面板应保持展开；编辑结束且指针仍在外部后才折叠。
+@MainActor
+func testShellStateKeepsPanelExpandedDuringEditing() {
+    let state = ShellState(backend: FakeBackend())
+    state.pointerEntered()
+    state.setPanelInteractionActive(true)
+    state.pointerExited()
+    if !state.isExpanded {
+        fail("active text editing should hold the expanded panel after pointer exit")
+    }
+    state.setPanelInteractionActive(false)
+    if state.isExpanded {
+        fail("ending interaction outside the panel should release expansion")
+    }
+}
+
+// Todo 编辑期间从待办切到专注时，壳层应只释放编辑锁而保持面板展开，随后指针真正离开才正常折叠。
+@MainActor
+func testShellStateReleasesEditingForPageSwitchWithoutCollapsing() {
+    let state = ShellState(backend: FakeBackend())
+    state.pointerEntered()
+    state.setPanelInteractionActive(true)
+
+    state.cancelPanelInteraction()
+    if !state.isExpanded {
+        fail("switching pages should not collapse the expanded panel")
+    }
+
+    state.pointerExited()
+    if state.isExpanded {
+        fail("the panel should collapse after the pointer actually leaves")
     }
 }
 
@@ -236,6 +302,26 @@ func testShellStateReportsBackendFailures() async {
     connectedState.stop()
 }
 
+// 已连接后只有 Todo 保存请求失败时，ShellState 应报告 Todo 操作错误但保持全局后端为 Connected，避免把局部持久化故障误报成整套服务离线。
+@MainActor
+func testTodoFailureDoesNotMisreportTheWholeBackendAsOffline() async {
+    let backend = FakeBackend()
+    let state = ShellState(backend: backend)
+    state.start()
+    await waitUntil("backend should connect before the Todo-only failure") {
+        state.backendMessage == "Connected"
+    }
+    backend.failsIntents = true
+
+    if await state.createTodo(title: "保留的草稿") {
+        fail("failed Todo save should report false")
+    }
+    if state.backendMessage != "Connected" || state.todoErrorMessage == nil {
+        fail("Todo-only failure should keep Connected and expose a Todo error")
+    }
+    state.stop()
+}
+
 // revision 3 的 pause 响应先生效、revision 2 的 running 轮询后到时，ShellState 应保持 paused 而不被旧状态回退。
 @MainActor
 func testShellStateRejectsOutOfOrderSnapshots() async {
@@ -264,7 +350,11 @@ func testShellStateRejectsOutOfOrderSnapshots() async {
 Task { @MainActor in
     await testShellStateLoadsBackendAndMapsUserIntents()
     await testShellStateReportsBackendFailures()
+    await testTodoFailureDoesNotMisreportTheWholeBackendAsOffline()
     await testShellStateRejectsOutOfOrderSnapshots()
+    await testShellStateMapsTodoIntentsAndKeepsBackendAuthoritative()
+    testShellStateKeepsPanelExpandedDuringEditing()
+    testShellStateReleasesEditingForPageSwitchWithoutCollapsing()
     print("Junimo ShellState behavior tests passed")
     exit(0)
 }

@@ -4,23 +4,22 @@ public protocol ShellBackendClient: AnyObject {
     func start() async throws
     func stop()
     func loadState() async throws -> SurfaceState
-    func sendIntent(_ intent: PomodoroIntent) async throws -> SurfaceState
+    func sendIntent(_ intent: ProductIntent) async throws -> SurfaceState
 }
 
-public final class GoBackendClient: ShellBackendClient {
-    private struct HealthResponse: Decodable {
-        var status: String
-        var protocolVersion: Int
-    }
+// BackendIntentRequest 只在 HTTP adapter 内把类型化产品意图映射为 Go wire contract。
+struct BackendIntentRequest: Encodable {
+    var type: String
+    var durationSeconds: Int?
+    var id: String?
+    var title: String?
+    var completed: Bool?
 
-    // BackendIntentRequest 只在 HTTP adapter 内把类型化意图映射为 Go wire contract。
-    private struct BackendIntentRequest: Encodable {
-        var type: String
-        var durationSeconds: Int?
-
-        // 将一个合法产品意图转成唯一的 HTTP 请求形状。
-        init(intent: PomodoroIntent) {
-            switch intent {
+    // 将一个合法产品意图转成唯一的 HTTP 请求形状。
+    init(intent: ProductIntent) {
+        switch intent {
+        case let .pomodoro(pomodoro):
+            switch pomodoro {
             case let .startFocus(durationSeconds):
                 type = "pomodoro.startFocus"
                 self.durationSeconds = durationSeconds
@@ -35,10 +34,34 @@ public final class GoBackendClient: ShellBackendClient {
             case .skipBreak:
                 type = "pomodoro.skipBreak"
             }
+        case let .todo(todo):
+            switch todo {
+            case let .create(title):
+                type = "todo.create"
+                self.title = title
+            case let .rename(id, title):
+                type = "todo.rename"
+                self.id = id
+                self.title = title
+            case let .setCompletion(id, completed):
+                type = "todo.setCompletion"
+                self.id = id
+                self.completed = completed
+            case let .delete(id):
+                type = "todo.delete"
+                self.id = id
+            }
         }
     }
+}
 
-    private static let supportedProtocolVersion = 3
+public final class GoBackendClient: ShellBackendClient {
+    private struct HealthResponse: Decodable {
+        var status: String
+        var protocolVersion: Int
+    }
+
+    private static let supportedProtocolVersion = 4
 
     private let port: Int
     private var process: Process?
@@ -84,7 +107,7 @@ public final class GoBackendClient: ShellBackendClient {
         return try JSONDecoder().decode(SurfaceState.self, from: data)
     }
 
-    public func sendIntent(_ intent: PomodoroIntent) async throws -> SurfaceState {
+    public func sendIntent(_ intent: ProductIntent) async throws -> SurfaceState {
         var request = URLRequest(url: baseURL.appendingPathComponent("intent"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

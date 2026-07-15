@@ -5,7 +5,8 @@ import QuartzCore
 import SwiftUI
 
 final class JunimoPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
+    // 可成为 key window 才能让 Todo TextField 获得键盘焦点；它仍不是主窗口。
+    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 }
 
@@ -13,8 +14,11 @@ final class JunimoPanel: NSPanel {
 final class NotchPanelController {
     private let state: ShellState
     private let panel: JunimoPanel
-    private let panelWidth: CGFloat = 420
-    private let expandedSize = NSSize(width: 420, height: 236)
+    private let panelWidth = JunimoPanelLayout.collapsedWidth
+    private let expandedSize = NSSize(
+        width: JunimoPanelLayout.expandedWidth,
+        height: JunimoPanelLayout.expandedHeight
+    )
     private let topWindowLevel = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.assistiveTechHighWindow)))
     private var screenChangeObserver: NSObjectProtocol?
 
