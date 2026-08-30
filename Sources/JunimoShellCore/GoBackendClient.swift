@@ -4,55 +4,6 @@ public protocol ShellBackendClient: AnyObject {
     func start() async throws
     func stop()
     func loadState() async throws -> SurfaceState
-    func sendIntent(_ intent: ProductIntent) async throws -> SurfaceState
-}
-
-// BackendIntentRequest 只在 HTTP adapter 内把类型化产品意图映射为 Go wire contract。
-struct BackendIntentRequest: Encodable {
-    var type: String
-    var durationSeconds: Int?
-    var id: String?
-    var title: String?
-    var completed: Bool?
-
-    // 将一个合法产品意图转成唯一的 HTTP 请求形状。
-    init(intent: ProductIntent) {
-        switch intent {
-        case let .pomodoro(pomodoro):
-            switch pomodoro {
-            case let .startFocus(durationSeconds):
-                type = "pomodoro.startFocus"
-                self.durationSeconds = durationSeconds
-            case .pause:
-                type = "pomodoro.pause"
-            case .resume:
-                type = "pomodoro.resume"
-            case .reset:
-                type = "pomodoro.reset"
-            case .startBreak:
-                type = "pomodoro.startBreak"
-            case .skipBreak:
-                type = "pomodoro.skipBreak"
-            }
-        case let .todo(todo):
-            switch todo {
-            case let .create(title):
-                type = "todo.create"
-                self.title = title
-            case let .rename(id, title):
-                type = "todo.rename"
-                self.id = id
-                self.title = title
-            case let .setCompletion(id, completed):
-                type = "todo.setCompletion"
-                self.id = id
-                self.completed = completed
-            case let .delete(id):
-                type = "todo.delete"
-                self.id = id
-            }
-        }
-    }
 }
 
 public final class GoBackendClient: ShellBackendClient {
@@ -61,8 +12,7 @@ public final class GoBackendClient: ShellBackendClient {
         var protocolVersion: Int
     }
 
-    private static let supportedProtocolVersion = 4
-
+    private static let supportedProtocolVersion = 5
     private let port: Int
     private var process: Process?
 
@@ -94,7 +44,6 @@ public final class GoBackendClient: ShellBackendClient {
 
     public func stop() {
         if let process, process.isRunning {
-            // 显式等待本 client 启动的 Go 子进程退出，避免应用或测试紧接着结束时遗留后端。
             process.terminate()
             process.waitUntilExit()
         }
@@ -107,21 +56,11 @@ public final class GoBackendClient: ShellBackendClient {
         return try JSONDecoder().decode(SurfaceState.self, from: data)
     }
 
-    public func sendIntent(_ intent: ProductIntent) async throws -> SurfaceState {
-        var request = URLRequest(url: baseURL.appendingPathComponent("intent"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(BackendIntentRequest(intent: intent))
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        try validate(response)
-        return try JSONDecoder().decode(SurfaceState.self, from: data)
-    }
-
     private var baseURL: URL {
         URL(string: "http://127.0.0.1:\(port)")!
     }
 
+    // isHealthy 同时校验协议版本，避免连接到残留的旧后端进程。
     private func isHealthy() async throws -> Bool {
         do {
             let (data, response) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("health"))

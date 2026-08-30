@@ -11,45 +11,14 @@ enum JunimoPanelLayout {
     static let collapsedNotchClearance: CGFloat = 102
     // collapsedCapsuleLaneWidth 为每侧胶囊保留独立等宽轨道，避免内容宽度不同破坏刘海两侧对称性。
     static let collapsedCapsuleLaneWidth: CGFloat = collapsedWidth / 2 - collapsedNotchClearance
-    static let expandedWidth: CGFloat = 640
-    static let expandedHeight: CGFloat = 380
+    static let expandedWidth: CGFloat = 560
+    static let expandedHeight: CGFloat = 260
 }
 
-// JunimoTypography 统一多页面壳层的字号层级，避免功能增加后重新退化为密集小字。
+// JunimoTypography 统一轻量 companion 的字号层级。
 enum JunimoTypography {
     static let pageTitle: CGFloat = 22
-    static let navigation: CGFloat = 15
-    static let body: CGFloat = 14
     static let caption: CGFloat = 12
-}
-
-// JunimoButtonTone 区分主要动作与低强调动作。
-enum JunimoButtonTone {
-    case primary
-    case secondary
-}
-
-// JunimoButtonStyle 提供 Focus 和 Todo 页面一致的紧凑按钮视觉。
-struct JunimoButtonStyle: ButtonStyle {
-    var tone: JunimoButtonTone = .secondary
-
-    // makeBody 根据动作层级和按压状态渲染按钮。
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: JunimoTypography.body, weight: .semibold))
-            .foregroundStyle(tone == .primary ? Color.black.opacity(0.88) : junimoAccent)
-            .padding(.horizontal, 15)
-            .frame(height: 38)
-            .background(
-                tone == .primary ? junimoAccent : Color.white.opacity(configuration.isPressed ? 0.11 : 0.055),
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(tone == .primary ? Color.clear : junimoAccent.opacity(0.50), lineWidth: 1)
-            )
-            .opacity(configuration.isPressed ? 0.78 : 1)
-    }
 }
 
 // TopAttachedPanelShape 保持顶部贴屏直角、底部圆角的刘海展开轮廓。
@@ -77,7 +46,7 @@ struct TopAttachedPanelShape: Shape {
     }
 }
 
-// JunimoPanelBackground 提供页面切换时不变的统一背景。
+// JunimoPanelBackground 提供展开 companion 的统一背景。
 struct JunimoPanelBackground: View {
     var body: some View {
         TopAttachedPanelShape(bottomRadius: 22)
@@ -98,7 +67,7 @@ struct JunimoAppIcon: View {
             if let image = NSImage(named: "junimo-junimo-sprite") {
                 Image(nsImage: image).resizable().scaledToFit()
             } else {
-                Image(systemName: "timer")
+                Image(systemName: "sparkles")
                     .resizable()
                     .scaledToFit()
                     .foregroundStyle(junimoAccent)

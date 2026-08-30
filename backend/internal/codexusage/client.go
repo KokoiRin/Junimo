@@ -53,7 +53,7 @@ func (client *Client) Query(ctx context.Context) (Snapshot, error) {
 			"clientInfo": map[string]any{
 				"name":    "junimo",
 				"title":   "Junimo",
-				"version": "0.1.0",
+				"version": "0.2.0",
 			},
 			"capabilities": map[string]any{"experimentalApi": true},
 		},

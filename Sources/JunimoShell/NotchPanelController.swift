@@ -5,7 +5,7 @@ import QuartzCore
 import SwiftUI
 
 final class JunimoPanel: NSPanel {
-    // 可成为 key window 才能让 Todo TextField 获得键盘焦点；它仍不是主窗口。
+    // 可成为 key window 以保持快捷按钮交互；它仍不是主窗口。
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 }
@@ -46,9 +46,8 @@ final class NotchPanelController {
         panel.contentView = NSHostingView(rootView: JunimoSurfaceView(state: state))
 
         state.expansionDidChange = { [weak self] expanded in
-            DispatchQueue.main.async {
-                self?.resize(expanded: expanded)
-            }
+            // ShellState 已在主线程；同步调整窗口，避免大视图先在旧 frame 中短暂绘制。
+            self?.resize(expanded: expanded)
         }
 
         screenChangeObserver = NotificationCenter.default.addObserver(

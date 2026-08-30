@@ -1,70 +1,75 @@
 # Junimo
 
-Junimo is a narrow macOS notch shell backed by a Go local backend. The current
-product slice keeps the top-center trigger and provides independent Focus and
-Todo pages in one expandable shell.
+Junimo is a lightweight macOS Codex companion. It lives around the built-in display notch, shows the remaining Codex usage window, makes completed Codex tasks audible, and opens a few frequent destinations without becoming another task manager.
+
+## Current Product
+
+- A transparent 420-point top-center hover strip that stays available across spaces.
+- A collapsed Codex activity capsule and primary usage capsule.
+- Hover expansion into a single 560×260 companion panel.
+- Categorized quick-launch commands for the Codex app and the [RIN website](https://kokoirin.github.io/rin3/).
+- Background Codex usage refresh without blocking `/state`.
+- Recent local Codex thread scans through one long-lived app-server process.
+- A stable completion event for each newly persisted successful Codex turn.
+- One clickable Junimo completion banner with the distinctive `Hero` sound and task title per completion event; clicking it opens the matching Codex task without depending on system notification permission.
+- A menu-bar item for showing or quitting Junimo.
 
 ## Active Boundary
 
-- Swift owns the macOS shell: AppKit lifecycle, menu bar presence, top-center
-  panel, hover expansion, local page selection, text focus, and SwiftUI rendering.
-- Go owns product behavior: the Pomodoro state machine, Todo lifecycle,
-  persistence, and HTTP API.
-- Swift renders backend snapshots and sends typed intents. It should not own
-  product state machines.
+- Swift owns the macOS shell: AppKit lifecycle, menu bar, notch placement, hover expansion, SwiftUI rendering, sound delivery, and `NSWorkspace` launch actions.
+- Go owns Codex adapters and product facts: usage caching, recent-thread monitoring, completion detection, stable event publication, and the HTTP state API.
+- Swift renders Go snapshots; it does not query Codex or infer task completion.
+- Go does not know AppKit layout, notification presentation, or application launching.
 
-See [AGENTS.md](AGENTS.md) for the repository instructions and language boundary rules.
+## Completion Detection
 
-## Current Slice
+Junimo starts an independent Codex app-server connection and polls recent interactive threads. The first successful scan establishes a baseline, so old completed tasks do not generate startup noise. Later `completed` turns produce events keyed by their stable Codex turn IDs; failed and interrupted turns are ignored.
 
-- A transparent 420-point-wide top-center hover strip with separate focus and
-  Codex capsules. Its height follows the current display's menu bar and never
-  drops below 28 points.
-- Hover expands the notch into a 560×320 panel with a left Focus/Todo navigation
-  rail and a right page area. Page selection stays local to Swift because it has
-  no product meaning.
-- The Focus and Todo pages render independent snapshots from the Go backend.
-- The collapsed panel shows the remaining Codex 5-hour usage window on its
-  right side.
-- Focus supports 15, 25, and 45 minute starts.
-- Focus can pause, resume, reset, complete, and hand off to a 5 minute break.
-- Break can complete or be skipped back to the next focus setup.
-- Focus and break completion show a temporary macOS notification with sound.
-- Todo supports create, inline rename, explicit complete/restore, delete, and a
-  collapsed completed section. New tasks appear first and persist locally.
-- The app bundle includes both `Junimo` and `junimo-backend`.
-- Legacy Swift/C++ feature code has been removed from the active tree.
+The activity adapter is isolated from usage. If thread monitoring fails, the panel keeps working and the usage indicator continues to refresh.
 
-## Pomodoro Behavior
+## Backend API
 
-The backend owns the Pomodoro state machine. Swift only renders snapshots and
-sends intents.
+The Go backend listens on `127.0.0.1:${JUNIMO_BACKEND_PORT:-44832}`.
 
 ```text
-focus idle -> focus running -> focus paused -> focus running
-focus running -> focus completed -> break running -> break completed
-break running -> focus idle
+GET /health
+GET /state
 ```
 
-Completion is visible in the notch panel state. Go publishes a stable completion
-event ID when a focus or break first reaches `completed`; Swift only deduplicates
-that event ID before invoking macOS `osascript display notification`.
+Protocol version 5 state:
 
-## Todo Behavior
+```json
+{
+  "revision": 12,
+  "codex": {
+    "status": "available",
+    "primary": {
+      "remainingPercent": 82,
+      "windowDurationMinutes": 300,
+      "resetsAt": 1783655023
+    }
+  },
+  "activity": {
+    "status": "available",
+    "completionEvent": {
+      "id": "<turn-id>",
+      "threadId": "<thread-id>",
+      "title": "Task title",
+      "completedAt": 1783655000
+    }
+  }
+}
+```
 
-Go is the sole owner of the ordered Todo list. Swift keeps only transient input
-and rename drafts; a task becomes official only after Go saves and returns a new
-snapshot. Completion requests carry the target state instead of a toggle, so a
-retried request cannot accidentally reverse a task.
+`revision` increases monotonically so Swift can reject late snapshots. The latest completion event remains in later snapshots; Swift deduplicates by event ID before delivering sound.
 
-Todo data is stored at `~/Library/Application Support/Junimo/todos.json`. A
-failed or malformed Todo store marks only Todo as unavailable; health checks,
-Pomodoro, and Codex usage remain operational. Tests may override the path with
-`JUNIMO_TODO_STORE_PATH`.
+## Codex Discovery
+
+Junimo checks `JUNIMO_CODEX_EXECUTABLE`, `PATH`, common user install directories, the Codex app bundle, Homebrew, and `/usr/local/bin`. A candidate must be executable and successfully answer `--version` before it is selected.
 
 ## Build And Test
 
-Run the local validation harness:
+Run the complete local validation:
 
 ```bash
 scripts/verify_ci.sh
@@ -78,63 +83,4 @@ scripts/build_app.sh
 scripts/run.sh
 ```
 
-`scripts/test.sh` runs the Go behavior suite, Swift DTO and shell-state tests,
-a real Swift-to-Go HTTP contract test, and an offscreen SwiftUI regression test
-for the expanded panel shape.
-
-The smoke test build writes:
-
-```text
-.build/direct/junimo-backend
-.build/direct/JunimoCoreSmokeTests
-```
-
-The app bundle is written to:
-
-```text
-.build/app/Junimo.app
-```
-
-Local ad-hoc app signing is best-effort because macOS may attach non-removable
-file-provider xattrs inside synced folders.
-
-## Backend API
-
-The Go backend listens on `127.0.0.1:${JUNIMO_BACKEND_PORT:-44832}`.
-
-```text
-GET  /health
-GET  /state
-POST /intent
-```
-
-Protocol version 4 snapshots carry a monotonically increasing `revision` so
-Swift can ignore late responses. Pomodoro snapshots also keep the latest
-Go-owned `completionEvent` with a stable numeric ID, and Todo snapshots carry an
-availability status plus the complete ordered task list.
-
-Current intents:
-
-```json
-{"type":"pomodoro.startFocus","durationSeconds":1500}
-{"type":"pomodoro.pause"}
-{"type":"pomodoro.resume"}
-{"type":"pomodoro.reset"}
-{"type":"pomodoro.startBreak"}
-{"type":"pomodoro.skipBreak"}
-{"type":"todo.create","title":"Write the release notes"}
-{"type":"todo.rename","id":"<stable-id>","title":"Update the release notes"}
-{"type":"todo.setCompletion","id":"<stable-id>","completed":true}
-{"type":"todo.delete","id":"<stable-id>"}
-```
-
-## Codex Usage
-
-The Go backend queries the local Codex app-server in the background and caches
-`account/rateLimits/read`. Requests to `/state` never wait for that external
-query. The collapsed shell shows the primary 5-hour window when available and
-an explicit unavailable state otherwise; the backend keeps the secondary
-window in its snapshot for compatibility.
-
-Junimo discovers `codex` from `PATH` and common user install locations. Set
-`JUNIMO_CODEX_EXECUTABLE` to override the executable path.
+`scripts/test.sh` covers Go activity and usage behavior, Swift DTO and shell state, a real Swift-to-Go v5 contract, and offscreen visual regression tests. The app bundle is written to `.build/app/Junimo.app`.

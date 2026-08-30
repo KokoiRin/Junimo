@@ -67,9 +67,7 @@ swiftc \
   -lJunimoCore \
   -module-cache-path "$BUILD_DIR/module-cache" \
   "$ROOT_DIR"/Sources/JunimoShell/JunimoDesignSystem.swift \
-  "$ROOT_DIR"/Sources/JunimoShell/JunimoNavigationRail.swift \
-  "$ROOT_DIR"/Sources/JunimoShell/FocusPage.swift \
-  "$ROOT_DIR"/Sources/JunimoShell/TodoPage.swift \
+  "$ROOT_DIR"/Sources/JunimoShell/MacQuickLaunchWorkspace.swift \
   "$ROOT_DIR"/Sources/JunimoShell/JunimoSurfaceView.swift \
   "$ROOT_DIR"/Tests/JunimoVisualTests/main.swift \
   -o "$BUILD_DIR/JunimoVisualTests" \

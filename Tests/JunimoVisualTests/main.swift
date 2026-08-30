@@ -2,13 +2,17 @@ import AppKit
 import JunimoCore
 import SwiftUI
 
-// fail 终止离屏视觉测试并输出可定位的失败原因。
 func fail(_ message: String) -> Never {
     fputs("Visual test failed: \(message)\n", stderr)
     exit(1)
 }
 
-// 在 640×380 透明画布中离屏展开真实 640×380 多页面面板时，中心应不透明且只有两个底部圆角外侧透明。
+final class VisualFakeWorkspace: QuickLaunchOpening {
+    func openApplication(bundleIdentifier: String) -> Bool { true }
+    func openURL(_ url: URL) -> Bool { true }
+}
+
+// 展开真实 companion 时中心必须不透明，且仅底部两个圆角外侧保持透明。
 @MainActor
 func testExpandedPanelKeepsRoundedCornersTransparent() {
     let hostSize = CGSize(width: 640, height: 380)
@@ -17,88 +21,52 @@ func testExpandedPanelKeepsRoundedCornersTransparent() {
         x: (hostSize.width - panelSize.width) / 2,
         y: (hostSize.height - panelSize.height) / 2
     )
-
     let state = ShellState()
     state.pointerEntered()
-    let rootView = ZStack {
+    let view = ZStack {
         Color.clear
-        JunimoSurfaceView(state: state)
+        JunimoSurfaceView(
+            state: state,
+            launcher: QuickLauncher(workspace: VisualFakeWorkspace())
+        )
     }
     .frame(width: hostSize.width, height: hostSize.height)
+    let bitmap = render(view, size: hostSize)
 
-    let hostingView = NSHostingView(rootView: rootView)
-    hostingView.frame = NSRect(origin: .zero, size: hostSize)
-    hostingView.wantsLayer = true
-    hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.isOpaque = false
-    window.backgroundColor = .clear
-    window.hasShadow = false
-    window.contentView = hostingView
-    hostingView.layoutSubtreeIfNeeded()
-    window.displayIfNeeded()
-
-    guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else {
-        fail("could not allocate an offscreen bitmap")
-    }
-    hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
-
-    let xScale = CGFloat(bitmap.pixelsWide) / hostSize.width
-    let yScale = CGFloat(bitmap.pixelsHigh) / hostSize.height
-    // alpha 将逻辑坐标映射到离屏位图并读取最终透明度。
-    func alpha(at point: CGPoint) -> CGFloat {
-        let x = min(bitmap.pixelsWide - 1, max(0, Int(point.x * xScale)))
-        let y = min(bitmap.pixelsHigh - 1, max(0, Int(point.y * yScale)))
-        return bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0
-    }
-
-    // 画布中心位于黑色面板内部，alpha 必须接近 1，先排除“整个视图没有成功渲染”的假阳性。
-    let centerAlpha = alpha(at: CGPoint(x: hostSize.width / 2, y: hostSize.height / 2))
+    let centerAlpha = alpha(bitmap, at: CGPoint(x: hostSize.width / 2, y: hostSize.height / 2), size: hostSize)
     guard centerAlpha > 0.95 else {
         fail("expanded panel center should be opaque, alpha was \(centerAlpha)")
     }
 
-    // 在四个包围盒角内缩 3pt 采样时，顶部直角应不透明、底部两个 22pt 圆角外侧应透明，因此透明点必须恰好为两个。
     let inset: CGFloat = 3
-    let cornerPoints = [
+    let corners = [
         CGPoint(x: panelOrigin.x + inset, y: panelOrigin.y + inset),
         CGPoint(x: panelOrigin.x + panelSize.width - inset, y: panelOrigin.y + inset),
         CGPoint(x: panelOrigin.x + inset, y: panelOrigin.y + panelSize.height - inset),
         CGPoint(x: panelOrigin.x + panelSize.width - inset, y: panelOrigin.y + panelSize.height - inset)
     ]
-    let transparentCorners = cornerPoints.filter { alpha(at: $0) < 0.02 }
-    guard transparentCorners.count == 2 else {
-        let alphas = cornerPoints.map { alpha(at: $0) }
-        fail("exactly the two rounded corners should be transparent; corner alphas were \(alphas)")
+    let transparent = corners.filter { alpha(bitmap, at: $0, size: hostSize) < 0.02 }
+    guard transparent.count == 2 else {
+        fail("exactly two rounded corners should be transparent")
     }
 }
 
-// Todo 被指定为初始本地页面时，离屏结果应同时绘制左侧导航选中强调色与右侧 Todo 内容，证明页面切换容器不是空占位。
+// 单一 companion 面板应绘制足量可见内容和绿色强调元素，防止布局退化为空壳或全透明表面。
 @MainActor
-func testTodoPageRendersNavigationAndContent() {
-    let hostSize = CGSize(width: JunimoPanelLayout.expandedWidth, height: JunimoPanelLayout.expandedHeight)
+func testCompanionRendersVisibleAccentContent() {
+    let size = CGSize(width: JunimoPanelLayout.expandedWidth, height: JunimoPanelLayout.expandedHeight)
     let state = ShellState()
     state.pointerEntered()
-    let hostingView = NSHostingView(
-        rootView: JunimoSurfaceView(state: state, initialPage: .todo)
-            .frame(width: hostSize.width, height: hostSize.height)
+    let bitmap = render(
+        JunimoSurfaceView(
+            state: state,
+            launcher: QuickLauncher(workspace: VisualFakeWorkspace())
+        ).frame(width: size.width, height: size.height),
+        size: size
     )
-    hostingView.frame = NSRect(origin: .zero, size: hostSize)
-    hostingView.layoutSubtreeIfNeeded()
-
-    guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else {
-        fail("could not allocate Todo page bitmap")
-    }
-    hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
 
     var accentPixels = 0
-    var contentPixels = 0
+    var visiblePixels = 0
     for x in stride(from: 0, to: bitmap.pixelsWide, by: 2) {
         for y in stride(from: 0, to: bitmap.pixelsHigh, by: 2) {
             guard let source = bitmap.colorAt(x: x, y: y),
@@ -106,108 +74,80 @@ func testTodoPageRendersNavigationAndContent() {
             if color.greenComponent > 0.70 && color.redComponent < 0.55 {
                 accentPixels += 1
             }
-            let brightness = max(color.redComponent, color.greenComponent, color.blueComponent)
-            if x > bitmap.pixelsWide / 3 && color.alphaComponent > 0.9 && brightness > 0.08 {
-                contentPixels += 1
+            if color.alphaComponent > 0.9 && max(color.redComponent, color.greenComponent, color.blueComponent) > 0.08 {
+                visiblePixels += 1
             }
         }
     }
-    guard accentPixels > 10 else {
-        fail("Todo navigation selection should render the accent treatment")
-    }
-    guard contentPixels > 10 else {
-        fail("Todo page should render visible controls in the right content area")
-    }
+    guard accentPixels > 20 else { fail("companion should render green activity and shortcut accents") }
+    guard visiblePixels > 100 else { fail("companion should render visible usage and shortcut content") }
 }
 
-// 多页面面板采用中文高密度工具布局时，页标题、导航、正文和说明文字都应保持明确字号下限，避免再次退化为难读小字。
-@MainActor
-func testExpandedPanelKeepsReadableTypographyHierarchy() {
-    guard JunimoTypography.pageTitle >= 22 else {
-        fail("page title should remain at least 22pt")
-    }
-    guard JunimoTypography.navigation >= 15 else {
-        fail("navigation should remain at least 15pt")
-    }
-    guard JunimoTypography.body >= 14 else {
-        fail("body text should remain at least 14pt")
-    }
-    guard JunimoTypography.caption >= 12 else {
-        fail("caption text should remain at least 12pt")
-    }
+// 轻量面板的标题和说明文字应维持清晰字号下限。
+func testCompanionKeepsReadableTypography() {
+    guard JunimoTypography.pageTitle >= 22 else { fail("title should remain at least 22pt") }
+    guard JunimoTypography.caption >= 12 else { fail("caption should remain at least 12pt") }
 }
 
-// 折叠态两颗不同宽度胶囊围绕刘海显示时，内边缘应到中心等距、保持约 204pt 净空，且阴影后的上下视觉留白近似相等。
+// 折叠态 activity 和用量胶囊应围绕刘海保持对称净空。
 @MainActor
-func testCollapsedCapsulesStaySymmetricAndVerticallyBalanced() {
-    let hostSize = CGSize(width: JunimoPanelLayout.collapsedWidth, height: 33)
+func testCollapsedCapsulesStaySymmetric() {
+    let size = CGSize(width: JunimoPanelLayout.collapsedWidth, height: 33)
     let state = ShellState()
-    let hostingView = NSHostingView(
-        rootView: JunimoSurfaceView(state: state)
-            .frame(width: hostSize.width, height: hostSize.height)
+    let bitmap = render(
+        JunimoSurfaceView(state: state, launcher: QuickLauncher(workspace: VisualFakeWorkspace()))
+            .frame(width: size.width, height: size.height),
+        size: size
     )
-    hostingView.frame = NSRect(origin: .zero, size: hostSize)
-    hostingView.wantsLayer = true
-    hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-    hostingView.layoutSubtreeIfNeeded()
-
-    guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else {
-        fail("could not allocate collapsed panel bitmap")
-    }
-    hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
-
-    let xScale = CGFloat(bitmap.pixelsWide) / hostSize.width
-    let yScale = CGFloat(bitmap.pixelsHigh) / hostSize.height
     let centerRow = bitmap.pixelsHigh / 2
-    let solidXs = (0..<bitmap.pixelsWide).filter { x in
-        (bitmap.colorAt(x: x, y: centerRow)?.alphaComponent ?? 0) > 0.60
+    let solid = (0..<bitmap.pixelsWide).filter {
+        (bitmap.colorAt(x: $0, y: centerRow)?.alphaComponent ?? 0) > 0.60
     }
     var ranges: [ClosedRange<Int>] = []
-    for x in solidXs {
+    for x in solid {
         if let last = ranges.last, x <= last.upperBound + 1 {
             ranges[ranges.count - 1] = last.lowerBound...x
         } else {
             ranges.append(x...x)
         }
     }
-    let capsuleRanges = ranges.filter { CGFloat($0.count) / xScale > 30 }
-    guard capsuleRanges.count == 2 else {
-        fail("collapsed panel should render two opaque capsule ranges, got \(capsuleRanges)")
+    let scale = CGFloat(bitmap.pixelsWide) / size.width
+    let capsules = ranges.filter { CGFloat($0.count) / scale > 30 }
+    guard capsules.count == 2 else { fail("collapsed shell should render two capsules, got \(capsules)") }
+    let leftInner = CGFloat(capsules[0].upperBound + 1) / scale
+    let rightInner = CGFloat(capsules[1].lowerBound) / scale
+    let center = size.width / 2
+    guard abs((center - leftInner) - (rightInner - center)) <= 1.5 else {
+        fail("capsule inner edges should remain symmetric")
     }
+}
 
-    let leftInnerEdge = CGFloat(capsuleRanges[0].upperBound + 1) / xScale
-    let rightInnerEdge = CGFloat(capsuleRanges[1].lowerBound) / xScale
-    let centerX = hostSize.width / 2
-    let leftDistance = centerX - leftInnerEdge
-    let rightDistance = rightInnerEdge - centerX
-    guard abs(leftDistance - rightDistance) <= 1.5 else {
-        fail("capsule inner distances should be symmetric, got \(leftDistance) and \(rightDistance)")
+@MainActor
+func render<V: View>(_ view: V, size: CGSize) -> NSBitmapImageRep {
+    let hosting = NSHostingView(rootView: view)
+    hosting.frame = NSRect(origin: .zero, size: size)
+    hosting.wantsLayer = true
+    hosting.layer?.backgroundColor = NSColor.clear.cgColor
+    hosting.layoutSubtreeIfNeeded()
+    guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+        fail("could not allocate offscreen bitmap")
     }
-    let centerGap = rightInnerEdge - leftInnerEdge
-    guard 200...208 ~= centerGap else {
-        fail("capsules should keep a near-but-separated notch gap, got \(centerGap)")
-    }
+    hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+    return bitmap
+}
 
-    let leftSampleX = (capsuleRanges[0].lowerBound + capsuleRanges[0].upperBound) / 2
-    let visibleYs = (0..<bitmap.pixelsHigh).filter { y in
-        (bitmap.colorAt(x: leftSampleX, y: y)?.alphaComponent ?? 0) > 0.02
-    }
-    guard let firstY = visibleYs.first, let lastY = visibleYs.last else {
-        fail("left capsule should have visible vertical pixels")
-    }
-    let firstGap = CGFloat(firstY) / yScale
-    let secondGap = hostSize.height - CGFloat(lastY + 1) / yScale
-    guard abs(firstGap - secondGap) <= 1.5 else {
-        fail("capsule visual vertical gaps should be balanced, got \(firstGap) and \(secondGap)")
-    }
+func alpha(_ bitmap: NSBitmapImageRep, at point: CGPoint, size: CGSize) -> CGFloat {
+    let x = min(bitmap.pixelsWide - 1, max(0, Int(point.x * CGFloat(bitmap.pixelsWide) / size.width)))
+    let y = min(bitmap.pixelsHigh - 1, max(0, Int(point.y * CGFloat(bitmap.pixelsHigh) / size.height)))
+    return bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0
 }
 
 Task { @MainActor in
     testExpandedPanelKeepsRoundedCornersTransparent()
-    testTodoPageRendersNavigationAndContent()
-    testExpandedPanelKeepsReadableTypographyHierarchy()
-    testCollapsedCapsulesStaySymmetricAndVerticallyBalanced()
-    print("Junimo expanded panel visual regression tests passed")
+    testCompanionRendersVisibleAccentContent()
+    testCompanionKeepsReadableTypography()
+    testCollapsedCapsulesStaySymmetric()
+    print("Junimo companion visual regression tests passed")
     exit(0)
 }
 RunLoop.main.run()

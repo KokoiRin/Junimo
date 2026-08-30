@@ -8,50 +8,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: NotchPanelController?
     private var statusItem: NSStatusItem?
     private var lifecycleWindow: NSWindow?
-    private var pomodoroObservation: AnyCancellable?
-    private var completionNotificationGate = PomodoroCompletionNotificationGate()
-    private let notificationService = MacPomodoroNotificationService()
+    private var activityObservation: AnyCancellable?
+    private var completionNotificationGate = CodexCompletionNotificationGate()
+    private let notificationService = MacCodexCompletionNotificationService()
     private var allowsTermination = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        LaunchLifecycleDiagnostics.record("application-will-finish-launching")
         installLifecycleAnchorWindow()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        LaunchLifecycleDiagnostics.record("application-did-finish-launching")
         NSApp.setActivationPolicy(.accessory)
 
         let state = ShellState()
         shellState = state
-        observePomodoroCompletion(in: state)
+        observeCodexCompletion(in: state)
         state.start()
+        deliverNotificationProbeIfRequested()
 
         let controller = NotchPanelController(state: state)
         panelController = controller
         controller.show()
-
         installStatusItem()
-        LaunchLifecycleDiagnostics.record("notch-panel-shown", fields: [
-            "visible": "\(controller.isVisible)"
-        ])
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        false
-    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         allowsTermination ? .terminateNow : .terminateCancel
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        pomodoroObservation?.cancel()
-        pomodoroObservation = nil
+        activityObservation?.cancel()
+        activityObservation = nil
         shellState?.stop()
         lifecycleWindow?.close()
         lifecycleWindow = nil
-        LaunchLifecycleDiagnostics.record("application-will-terminate")
     }
 
     @objc private func showPanelFromMenu() {
@@ -60,14 +52,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitFromMenu() {
         allowsTermination = true
-        LaunchLifecycleDiagnostics.record("quit-requested-from-menu")
         NSApp.terminate(nil)
     }
 
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "timer", accessibilityDescription: "Junimo")
-
+        item.button?.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Junimo")
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Show Junimo", action: #selector(showPanelFromMenu), keyEquivalent: ""))
         menu.addItem(.separator())
@@ -77,13 +67,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
     }
 
-    private func observePomodoroCompletion(in state: ShellState) {
-        pomodoroObservation = state.$surfaceState
-            .map(\.pomodoro.completionEvent)
+    // observeCodexCompletion 只消费 Go 稳定完成事件，重复 state 轮询不会重复投递。
+    private func observeCodexCompletion(in state: ShellState) {
+        activityObservation = state.$surfaceState
+            .map(\.activity.completionEvent)
             .sink { [weak self] event in
-                guard let self,
-                      let mode = completionNotificationGate.observe(event) else { return }
-                notificationService.notifyCompletion(for: mode)
+                guard let self, let event = completionNotificationGate.observe(event) else { return }
+                notificationService.notifyCompletion(event)
             }
     }
 
@@ -105,5 +95,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.collectionBehavior = [.canJoinAllSpaces, .stationary]
         window.orderFrontRegardless()
         lifecycleWindow = window
+    }
+
+    // 显式环境变量只用于本地端到端验证，正常启动不会产生测试通知。
+    private func deliverNotificationProbeIfRequested() {
+        guard let threadID = ProcessInfo.processInfo.environment["JUNIMO_NOTIFICATION_TEST_THREAD_ID"] else {
+            return
+        }
+        notificationService.notifyCompletion(
+            CodexCompletionEvent(
+                id: "junimo-notification-test-\(UUID().uuidString)",
+                threadId: threadID,
+                title: "Junimo 点击通知测试",
+                completedAt: Int64(Date().timeIntervalSince1970)
+            )
+        )
     }
 }
