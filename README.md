@@ -1,43 +1,43 @@
 # Junimo
 
-Junimo is a lightweight macOS Codex companion. It lives around the built-in display notch, shows the remaining Codex usage window, makes completed Codex tasks audible, and opens a few frequent destinations without becoming another task manager.
+Junimo 是一个轻量的 macOS Codex 伴侣。它常驻在内置屏幕刘海周围，用来展示 Codex 剩余用量、为已完成的 Codex 任务发出声音提醒，并快速打开常用入口，而不会变成另一个任务管理器。
 
-## Current Product
+## 当前产品
 
-- A transparent 420-point top-center hover strip that stays available across spaces.
-- A collapsed Codex activity capsule and primary usage capsule.
-- Hover expansion into a single 560×260 companion panel.
-- A quick-launch row that starts with Codex and can be extended with personal websites or macOS applications.
-- A user-editable JSON catalog that reloads immediately after the file is saved.
-- Background Codex usage refresh without blocking `/state`.
-- Recent local Codex thread scans through one long-lived app-server process.
-- A stable completion event for each newly persisted successful Codex turn.
-- One clickable Junimo completion banner with the distinctive `Hero` sound and task title per completion event; clicking it opens the matching Codex task without depending on system notification permission.
-- A menu-bar item for showing or quitting Junimo.
+- 一个透明的顶部中央悬停区域，宽度为 420pt，可跨桌面空间保持可用。
+- 折叠状态在刘海两侧显示 Codex 活动胶囊和主用量胶囊。
+- 悬停后展开为单个 `560×260` 的伴侣面板。
+- 快捷入口默认只包含 Codex，也可以扩展为个人网站或其他 macOS 应用。
+- 快捷入口由用户可编辑的 JSON 文件管理，保存后立即重新加载。
+- Codex 用量在后台刷新，不会阻塞 `/state`。
+- 通过一个长连接 app-server 进程扫描最近的本地 Codex 任务。
+- 每个新持久化的成功 Codex turn 都会生成稳定的完成事件。
+- 每个完成事件只展示一次可点击的 Junimo 横幅，播放有辨识度的 `Hero` 声音并显示任务标题；点击后会打开对应的 Codex 任务，不依赖系统通知权限。
+- 菜单栏入口可以显示面板、编辑快捷入口配置或退出 Junimo。
 
-## Active Boundary
+## 职责边界
 
-- Swift owns the macOS shell: AppKit lifecycle, menu bar, notch placement, hover expansion, SwiftUI rendering, sound delivery, and `NSWorkspace` launch actions.
-- Go owns Codex adapters and product facts: usage caching, recent-thread monitoring, completion detection, stable event publication, and the HTTP state API.
-- Swift renders Go snapshots; it does not query Codex or infer task completion.
-- Go does not know AppKit layout, notification presentation, or application launching.
+- Swift 负责 macOS 外壳：AppKit 生命周期、菜单栏、刘海定位、悬停展开、SwiftUI 渲染、声音提醒和 `NSWorkspace` 打开动作。
+- Go 负责 Codex 适配器和产品事实：用量缓存、最近任务监控、完成检测、稳定事件发布和 HTTP 状态接口。
+- Swift 只渲染 Go 快照，不直接查询 Codex，也不推断任务是否完成。
+- Go 不感知 AppKit 布局、通知展示或应用启动行为。
 
-## Completion Detection
+## 完成检测
 
-Junimo starts an independent Codex app-server connection and polls recent interactive threads. The first successful scan establishes a baseline, so old completed tasks do not generate startup noise. Later `completed` turns produce events keyed by their stable Codex turn IDs; failed and interrupted turns are ignored.
+Junimo 会建立一条独立的 Codex app-server 连接，并轮询最近的交互任务。第一次成功扫描只建立历史基线，因此启动时不会为旧任务补发提醒。后续状态为 `completed` 的 turn 会以稳定的 Codex turn ID 生成事件；失败或被中断的 turn 会被忽略。
 
-The activity adapter is isolated from usage. If thread monitoring fails, the panel keeps working and the usage indicator continues to refresh.
+活动监控与用量采集彼此隔离。即使任务监控失败，面板和用量指示器仍会继续工作。
 
-## Backend API
+## 后端接口
 
-The Go backend listens on `127.0.0.1:${JUNIMO_BACKEND_PORT:-44832}`.
+Go 后端监听 `127.0.0.1:${JUNIMO_BACKEND_PORT:-44832}`。
 
 ```text
 GET /health
 GET /state
 ```
 
-Protocol version 5 state:
+协议版本 5 的状态示例：
 
 ```json
 {
@@ -55,35 +55,30 @@ Protocol version 5 state:
     "completionEvent": {
       "id": "<turn-id>",
       "threadId": "<thread-id>",
-      "title": "Task title",
+      "title": "任务标题",
       "completedAt": 1783655000
     }
   }
 }
 ```
 
-`revision` increases monotonically so Swift can reject late snapshots. The latest completion event remains in later snapshots; Swift deduplicates by event ID before delivering sound.
+`revision` 单调递增，Swift 会据此拒绝迟到的旧快照。最新完成事件会保留在后续快照中，Swift 通过事件 ID 去重后再播放提醒。
 
-## Codex Discovery
+## Codex 查找
 
-Junimo checks `JUNIMO_CODEX_EXECUTABLE`, `PATH`, common user install directories, the Codex app bundle, Homebrew, and `/usr/local/bin`. A candidate must be executable and successfully answer `--version` before it is selected.
+Junimo 会依次检查 `JUNIMO_CODEX_EXECUTABLE`、`PATH`、常见用户安装目录、Codex App Bundle、Homebrew 和 `/usr/local/bin`。候选程序必须可执行，并且能够正确响应 `--version`，才会被采用。
 
-## Quick Launch Configuration
+## 快捷入口配置
 
-New installations start with one Codex shortcut. Junimo creates and watches this
-user-editable file:
+新安装默认只包含一个 Codex 入口。Junimo 会创建并监听下面这个用户配置文件：
 
 ```text
 ~/Library/Application Support/Junimo/quick-launch.json
 ```
 
-Use the menu-bar command `Edit Quick Launches…` to open it. Add, remove, rename,
-or reorder entries in the `items` array, then save. The expanded panel refreshes
-without rebuilding or restarting Junimo. App updates do not overwrite an existing
-file. Invalid JSON keeps the last valid catalog and shows a warning icon beside
-`快速打开`.
+通过菜单栏的 `Edit Quick Launches…` 可以直接打开它。在 `items` 数组中新增、删除、重命名或调整入口顺序，然后保存；展开面板会自动刷新，不需要重新构建或重启 Junimo。应用升级不会覆盖已经存在的配置文件。如果 JSON 无效，Junimo 会继续使用上一份有效配置，并在“快速打开”旁显示警告图标。
 
-The generated default is:
+自动生成的默认配置如下：
 
 ```json
 {
@@ -101,49 +96,67 @@ The generated default is:
 }
 ```
 
-To add a website, append an item like this inside `items`:
+### 添加网页
+
+在 `items` 中追加类似下面的对象：
 
 ```json
 {
   "id": "docs",
-  "title": "Docs",
+  "title": "文档",
   "icon": "document",
   "type": "url",
   "target": "https://example.com/docs"
 }
 ```
 
-To add another macOS application, use `"type": "application"` and place its
-bundle identifier in `target`.
+### 添加 macOS 应用
 
-`type` accepts `url` for HTTP/HTTPS pages and `application` for a macOS bundle
-identifier. Each item needs a unique alphanumeric `id`; `-` and `_` are also
-allowed. The file must contain between 1 and 12 items. Up to four entries share
-the row evenly; larger catalogs scroll horizontally.
+将 `type` 设为 `application`，并在 `target` 中填写应用的 Bundle ID：
 
-Available `icon` presets:
+```json
+{
+  "id": "notes",
+  "title": "备忘录",
+  "icon": "app",
+  "type": "application",
+  "target": "com.apple.Notes"
+}
+```
 
-- `app`: general applications
-- `code`: development and terminals
-- `website`: general websites
-- `reading`: books and learning
-- `document`: documents and notes
-- `tools`: utilities
-- `data`: dashboards and analytics
-- `video`: video sites
-- `music`: music sites
-- `ai`: AI tools
-- `link`: generic links
+### 配置规则
 
-## Build And Test
+- `type` 支持 `url` 和 `application`。
+- `url` 只接受 HTTP 或 HTTPS 网页地址。
+- `application` 的 `target` 必须是 macOS 应用的 Bundle ID。
+- 每个入口都需要唯一的 `id`，可使用字母、数字、`-` 和 `_`。
+- 配置文件必须包含 1～12 个入口。
+- 不超过 4 个入口时会均分一行；更多入口会横向滚动。
+- 配置写坏时不会清空当前面板，修复并保存后会自动恢复。
 
-Run the complete local validation:
+### 图标选项
+
+- `app`：通用应用
+- `code`：开发工具和终端
+- `website`：通用网站
+- `reading`：阅读和学习
+- `document`：文档和笔记
+- `tools`：实用工具
+- `data`：数据面板和分析
+- `video`：视频网站
+- `music`：音乐网站
+- `ai`：AI 工具
+- `link`：通用链接
+
+## 构建与测试
+
+运行完整本地验证：
 
 ```bash
 scripts/verify_ci.sh
 ```
 
-Useful narrower commands:
+也可以运行范围更小的命令：
 
 ```bash
 scripts/test.sh
@@ -151,4 +164,4 @@ scripts/build_app.sh
 scripts/run.sh
 ```
 
-`scripts/test.sh` covers Go activity and usage behavior, Swift DTO and shell state, a real Swift-to-Go v5 contract, and offscreen visual regression tests. The app bundle is written to `.build/app/Junimo.app`.
+`scripts/test.sh` 会覆盖 Go 活动与用量行为、Swift DTO 和壳层状态、真实的 Swift-to-Go v5 契约，以及离屏 SwiftUI 视觉回归。最终 App Bundle 会生成在 `.build/app/Junimo.app`。
