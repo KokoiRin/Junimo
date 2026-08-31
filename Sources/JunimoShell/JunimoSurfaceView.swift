@@ -28,15 +28,13 @@ struct JunimoSurfaceView: View {
     }
 
     var body: some View {
-        Group {
-            if state.isExpanded {
-                expanded
-            } else {
-                collapsed
-            }
-        }
-        .onHover { inside in
-            inside ? state.pointerEntered() : state.pointerExited()
+        if state.isExpanded {
+            expanded
+                .onHover { inside in
+                    inside ? state.pointerEntered() : state.pointerExited()
+                }
+        } else {
+            collapsed
         }
     }
 
@@ -152,13 +150,12 @@ struct JunimoSurfaceView: View {
         .accessibilityIdentifier("shortcut.\(command.id)")
     }
 
-    // collapsed 在刘海两侧分别展示 activity 身份与主用量窗口。
+    // collapsed 只允许中央刘海净空触发展开；两侧胶囊保持各自的点击或展示职责。
     private var collapsed: some View {
         HStack(spacing: 0) {
-            activityCapsule
+            codexLauncherCapsule
                 .frame(width: JunimoPanelLayout.collapsedCapsuleLaneWidth, alignment: .trailing)
-            Color.clear
-                .frame(width: JunimoPanelLayout.collapsedNotchClearance * 2)
+            notchHoverTrigger
             codexUsageCapsule
                 .frame(width: JunimoPanelLayout.collapsedCapsuleLaneWidth, alignment: .leading)
         }
@@ -168,20 +165,31 @@ struct JunimoSurfaceView: View {
         .contentShape(Rectangle())
     }
 
-    private var activityCapsule: some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(activityColor)
-                .frame(width: 7, height: 7)
-            Text("Codex")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.82))
+    private var notchHoverTrigger: some View {
+        Color.black.opacity(0.001)
+            .frame(width: JunimoPanelLayout.collapsedNotchClearance * 2)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside {
+                    state.pointerEntered()
+                }
+            }
+            .accessibilityIdentifier("notch.expandTrigger")
+    }
+
+    private var codexLauncherCapsule: some View {
+        Button {
+            guard let command = QuickLaunchCatalog.commands.first(where: { $0.id == "codex" }) else { return }
+            _ = launcher.open(command)
+        } label: {
+            JunimoAppIcon()
+                .frame(width: 28, height: 28)
+                .frame(width: 42, height: 33)
+                .contentShape(Rectangle())
         }
-        .padding(.horizontal, 11)
-        .frame(height: 28)
-        .background(capsuleBackground, in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 1))
-        .shadow(color: .black.opacity(0.24), radius: 2)
+        .buttonStyle(.plain)
+        .accessibilityLabel("打开 Codex")
+        .accessibilityIdentifier("shortcut.codex.collapsed")
     }
 
     private var codexUsageCapsule: some View {

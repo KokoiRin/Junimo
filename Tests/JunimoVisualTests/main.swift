@@ -89,9 +89,9 @@ func testCompanionKeepsReadableTypography() {
     guard JunimoTypography.caption >= 12 else { fail("caption should remain at least 12pt") }
 }
 
-// 折叠态 activity 和用量胶囊应围绕刘海保持对称净空。
+// 折叠态应在中央刘海触发区两侧分别画出 Junimo 图标和用量胶囊，中央区域保持视觉透明。
 @MainActor
-func testCollapsedCapsulesStaySymmetric() {
+func testCollapsedControlsKeepNotchTriggerClear() {
     let size = CGSize(width: JunimoPanelLayout.collapsedWidth, height: 33)
     let state = ShellState()
     let bitmap = render(
@@ -99,27 +99,29 @@ func testCollapsedCapsulesStaySymmetric() {
             .frame(width: size.width, height: size.height),
         size: size
     )
-    let centerRow = bitmap.pixelsHigh / 2
-    let solid = (0..<bitmap.pixelsWide).filter {
-        (bitmap.colorAt(x: $0, y: centerRow)?.alphaComponent ?? 0) > 0.60
-    }
-    var ranges: [ClosedRange<Int>] = []
-    for x in solid {
-        if let last = ranges.last, x <= last.upperBound + 1 {
-            ranges[ranges.count - 1] = last.lowerBound...x
-        } else {
-            ranges.append(x...x)
+    let scale = CGFloat(bitmap.pixelsWide) / size.width
+    let leftEnd = Int(JunimoPanelLayout.collapsedCapsuleLaneWidth * scale)
+    let rightStart = Int(
+        (JunimoPanelLayout.collapsedCapsuleLaneWidth + JunimoPanelLayout.collapsedNotchClearance * 2) * scale
+    )
+    var leftVisible = 0
+    var centerVisible = 0
+    var rightVisible = 0
+    for x in 0..<bitmap.pixelsWide {
+        for y in 0..<bitmap.pixelsHigh {
+            guard (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.60 else { continue }
+            if x < leftEnd {
+                leftVisible += 1
+            } else if x < rightStart {
+                centerVisible += 1
+            } else {
+                rightVisible += 1
+            }
         }
     }
-    let scale = CGFloat(bitmap.pixelsWide) / size.width
-    let capsules = ranges.filter { CGFloat($0.count) / scale > 30 }
-    guard capsules.count == 2 else { fail("collapsed shell should render two capsules, got \(capsules)") }
-    let leftInner = CGFloat(capsules[0].upperBound + 1) / scale
-    let rightInner = CGFloat(capsules[1].lowerBound) / scale
-    let center = size.width / 2
-    guard abs((center - leftInner) - (rightInner - center)) <= 1.5 else {
-        fail("capsule inner edges should remain symmetric")
-    }
+    guard leftVisible > 20 else { fail("collapsed shell should render the Junimo launcher icon") }
+    guard rightVisible > 20 else { fail("collapsed shell should render the usage capsule") }
+    guard centerVisible == 0 else { fail("the notch hover trigger should remain visually transparent") }
 }
 
 @MainActor
@@ -146,7 +148,7 @@ Task { @MainActor in
     testExpandedPanelKeepsRoundedCornersTransparent()
     testCompanionRendersVisibleAccentContent()
     testCompanionKeepsReadableTypography()
-    testCollapsedCapsulesStaySymmetric()
+    testCollapsedControlsKeepNotchTriggerClear()
     print("Junimo companion visual regression tests passed")
     exit(0)
 }
