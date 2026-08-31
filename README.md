@@ -1,84 +1,75 @@
 # Junimo
 
-Junimo 是一个轻量的 macOS Codex 伴侣。它常驻在内置屏幕刘海周围，用来展示 Codex 剩余用量、为已完成的 Codex 任务发出声音提醒，并快速打开常用入口，而不会变成另一个任务管理器。
+一个住在 Mac 刘海旁边的轻量 Codex 伴侣。
 
-## 当前产品
+Junimo 让你不打开 Codex 也能快速看到剩余用量和任务状态。任务完成时，它会播放提示音并显示可点击的任务横幅；展开刘海面板后，还可以直接打开自己配置的常用网站或应用。
 
-- 一个透明的顶部中央悬停区域，宽度为 420pt，可跨桌面空间保持可用。
-- 折叠状态在刘海两侧显示 Codex 活动胶囊和主用量胶囊。
-- 悬停后展开为单个 `560×260` 的伴侣面板。
-- 快捷入口默认只包含 Codex，也可以扩展为个人网站或其他 macOS 应用。
-- 快捷入口由用户可编辑的 JSON 文件管理，保存后立即重新加载。
-- Codex 用量在后台刷新，不会阻塞 `/state`。
-- 通过一个长连接 app-server 进程扫描最近的本地 Codex 任务。
-- 每个新持久化的成功 Codex turn 都会生成稳定的完成事件。
-- 每个完成事件只展示一次可点击的 Junimo 横幅，播放有辨识度的 `Hero` 声音并显示任务标题；点击后会打开对应的 Codex 任务，不依赖系统通知权限。
-- 菜单栏入口可以显示面板、编辑快捷入口配置或退出 Junimo。
+## 你能用它做什么
 
-## 职责边界
+- 在刘海旁随时查看 Codex 当前状态和剩余用量。
+- Codex 任务完成时播放 `Hero` 提示音，不必一直盯着窗口。
+- 点击完成横幅，直接回到对应的 Codex 任务。
+- 悬停刘海区域，展开常用入口面板。
+- 用一个本地 JSON 文件新增、删除和排序网站或应用入口。
+- 保存配置后立即刷新，不需要重新构建或重启 Junimo。
 
-- Swift 负责 macOS 外壳：AppKit 生命周期、菜单栏、刘海定位、悬停展开、SwiftUI 渲染、声音提醒和 `NSWorkspace` 打开动作。
-- Go 负责 Codex 适配器和产品事实：用量缓存、最近任务监控、完成检测、稳定事件发布和 HTTP 状态接口。
-- Swift 只渲染 Go 快照，不直接查询 Codex，也不推断任务是否完成。
-- Go 不感知 AppKit 布局、通知展示或应用启动行为。
+## 运行要求
 
-## 完成检测
+- Apple Silicon Mac
+- macOS 14 或更高版本
+- [Go 1.26](https://go.dev/dl/)
+- Xcode Command Line Tools，其中需要包含 `swiftc`
+- 本机已经安装并登录 Codex
 
-Junimo 会建立一条独立的 Codex app-server 连接，并轮询最近的交互任务。第一次成功扫描只建立历史基线，因此启动时不会为旧任务补发提醒。后续状态为 `completed` 的 turn 会以稳定的 Codex turn ID 生成事件；失败或被中断的 turn 会被忽略。
+可以先检查环境：
 
-活动监控与用量采集彼此隔离。即使任务监控失败，面板和用量指示器仍会继续工作。
+```bash
+go version
+swiftc --version
+codex --version
+```
 
-## 后端接口
+## 快速开始
 
-Go 后端监听 `127.0.0.1:${JUNIMO_BACKEND_PORT:-44832}`。
+克隆当前分支并启动：
+
+```bash
+git clone --branch codex/lean-codex-companion --single-branch https://github.com/KokoiRin/Junimo.git
+cd Junimo
+scripts/run.sh
+```
+
+`scripts/run.sh` 会构建 Junimo、关闭这个构建目录中的旧实例，然后启动新生成的 App。构建产物位于：
 
 ```text
-GET /health
-GET /state
+.build/app/Junimo.app
 ```
 
-协议版本 5 的状态示例：
+如果希望安装到“应用程序”目录：
 
-```json
-{
-  "revision": 12,
-  "codex": {
-    "status": "available",
-    "primary": {
-      "remainingPercent": 82,
-      "windowDurationMinutes": 300,
-      "resetsAt": 1783655023
-    }
-  },
-  "activity": {
-    "status": "available",
-    "completionEvent": {
-      "id": "<turn-id>",
-      "threadId": "<thread-id>",
-      "title": "任务标题",
-      "completedAt": 1783655000
-    }
-  }
-}
+```bash
+scripts/build_app.sh
+ditto .build/app/Junimo.app /Applications/Junimo.app
+open /Applications/Junimo.app
 ```
 
-`revision` 单调递增，Swift 会据此拒绝迟到的旧快照。最新完成事件会保留在后续快照中，Swift 通过事件 ID 去重后再播放提醒。
+## 日常使用
 
-## Codex 查找
+1. 启动 Junimo 后，刘海两侧会显示 Codex 活动状态和剩余用量。
+2. 将鼠标移到屏幕顶部中央，展开 Junimo 面板。
+3. 点击“快速打开”中的入口，打开对应网站或应用。
+4. Codex 任务完成时，点击 Junimo 横幅可以返回对应任务。
+5. 点击菜单栏中的 Junimo 图标，可以显示面板、编辑快捷入口或退出应用。
 
-Junimo 会依次检查 `JUNIMO_CODEX_EXECUTABLE`、`PATH`、常见用户安装目录、Codex App Bundle、Homebrew 和 `/usr/local/bin`。候选程序必须可执行，并且能够正确响应 `--version`，才会被采用。
+## 配置快捷入口
 
-## 快捷入口配置
-
-新安装默认只包含一个 Codex 入口。Junimo 会创建并监听下面这个用户配置文件：
+Junimo 第一次启动时会生成：
 
 ```text
 ~/Library/Application Support/Junimo/quick-launch.json
 ```
 
-通过菜单栏的 `Edit Quick Launches…` 可以直接打开它。在 `items` 数组中新增、删除、重命名或调整入口顺序，然后保存；展开面板会自动刷新，不需要重新构建或重启 Junimo。应用升级不会覆盖已经存在的配置文件。如果 JSON 无效，Junimo 会继续使用上一份有效配置，并在“快速打开”旁显示警告图标。
-
-自动生成的默认配置如下：
+也可以通过菜单栏的 `Edit Quick Launches…` 直接打开它。默认配置只有 Codex：
 
 ```json
 {
@@ -96,9 +87,9 @@ Junimo 会依次检查 `JUNIMO_CODEX_EXECUTABLE`、`PATH`、常见用户安装�
 }
 ```
 
-### 添加网页
+### 添加一个网站
 
-在 `items` 中追加类似下面的对象：
+把下面的对象追加到 `items` 数组中：
 
 ```json
 {
@@ -110,9 +101,9 @@ Junimo 会依次检查 `JUNIMO_CODEX_EXECUTABLE`、`PATH`、常见用户安装�
 }
 ```
 
-### 添加 macOS 应用
+### 添加一个 macOS 应用
 
-将 `type` 设为 `application`，并在 `target` 中填写应用的 Bundle ID：
+`target` 需要填写应用的 Bundle ID：
 
 ```json
 {
@@ -124,17 +115,18 @@ Junimo 会依次检查 `JUNIMO_CODEX_EXECUTABLE`、`PATH`、常见用户安装�
 }
 ```
 
-### 配置规则
+保存文件后，运行中的面板会自动更新。应用升级不会覆盖已经存在的个人配置。
 
-- `type` 支持 `url` 和 `application`。
-- `url` 只接受 HTTP 或 HTTPS 网页地址。
-- `application` 的 `target` 必须是 macOS 应用的 Bundle ID。
+配置需要满足以下规则：
+
 - 每个入口都需要唯一的 `id`，可使用字母、数字、`-` 和 `_`。
-- 配置文件必须包含 1～12 个入口。
-- 不超过 4 个入口时会均分一行；更多入口会横向滚动。
-- 配置写坏时不会清空当前面板，修复并保存后会自动恢复。
+- `type: "url"` 只接受 HTTP 或 HTTPS 地址。
+- `type: "application"` 的 `target` 必须是应用 Bundle ID。
+- 配置文件需要保留 1～12 个入口。
+- JSON 写错时，Junimo 会继续显示上一份有效配置；修复并保存后会自动恢复。
 
-### 图标选项
+<details>
+<summary>查看所有图标选项</summary>
 
 - `app`：通用应用
 - `code`：开发工具和终端
@@ -148,20 +140,54 @@ Junimo 会依次检查 `JUNIMO_CODEX_EXECUTABLE`、`PATH`、常见用户安装�
 - `ai`：AI 工具
 - `link`：通用链接
 
-## 构建与测试
+</details>
 
-运行完整本地验证：
+## 常见问题
+
+### 看不到 Codex 用量
+
+先确认终端可以找到 Codex：
+
+```bash
+codex --version
+```
+
+如果 Codex 安装在特殊位置，可以在启动 Junimo 前指定：
+
+```bash
+export JUNIMO_CODEX_EXECUTABLE=/path/to/codex
+scripts/run.sh
+```
+
+### 修改配置后没有更新
+
+检查 `quick-launch.json` 是否仍是有效 JSON。配置错误时，“快速打开”旁会出现橙色警告图标；将鼠标停在图标上可以看到错误原因。
+
+### App 构建或启动失败
+
+运行完整检查：
 
 ```bash
 scripts/verify_ci.sh
 ```
 
-也可以运行范围更小的命令：
+它会执行 Go 测试、Swift 行为测试、Swift-to-Go 契约测试、视觉回归和 App Bundle 构建。
 
-```bash
-scripts/test.sh
-scripts/build_app.sh
-scripts/run.sh
+## 本地数据
+
+快捷入口配置保存在：
+
+```text
+~/Library/Application Support/Junimo/quick-launch.json
 ```
 
-`scripts/test.sh` 会覆盖 Go 活动与用量行为、Swift DTO 和壳层状态、真实的 Swift-to-Go v5 契约，以及离屏 SwiftUI 视觉回归。最终 App Bundle 会生成在 `.build/app/Junimo.app`。
+Junimo 不会把这份个人配置写回代码仓库。删除该文件后，下次启动会重新生成只包含 Codex 的默认配置。
+
+## 开发命令
+
+```bash
+scripts/test.sh       # 运行行为、契约和视觉测试
+scripts/build_app.sh  # 生成 .build/app/Junimo.app
+scripts/run.sh        # 构建并启动
+scripts/verify_ci.sh  # 运行完整本地验证
+```
