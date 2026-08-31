@@ -7,7 +7,8 @@ Junimo is a lightweight macOS Codex companion. It lives around the built-in disp
 - A transparent 420-point top-center hover strip that stays available across spaces.
 - A collapsed Codex activity capsule and primary usage capsule.
 - Hover expansion into a single 560×260 companion panel.
-- Categorized quick-launch commands for the Codex app and the [RIN website](https://kokoirin.github.io/rin3/).
+- A quick-launch row that starts with Codex and can be extended with personal websites or macOS applications.
+- A user-editable JSON catalog that reloads immediately after the file is saved.
 - Background Codex usage refresh without blocking `/state`.
 - Recent local Codex thread scans through one long-lived app-server process.
 - A stable completion event for each newly persisted successful Codex turn.
@@ -66,6 +67,73 @@ Protocol version 5 state:
 ## Codex Discovery
 
 Junimo checks `JUNIMO_CODEX_EXECUTABLE`, `PATH`, common user install directories, the Codex app bundle, Homebrew, and `/usr/local/bin`. A candidate must be executable and successfully answer `--version` before it is selected.
+
+## Quick Launch Configuration
+
+New installations start with one Codex shortcut. Junimo creates and watches this
+user-editable file:
+
+```text
+~/Library/Application Support/Junimo/quick-launch.json
+```
+
+Use the menu-bar command `Edit Quick Launches…` to open it. Add, remove, rename,
+or reorder entries in the `items` array, then save. The expanded panel refreshes
+without rebuilding or restarting Junimo. App updates do not overwrite an existing
+file. Invalid JSON keeps the last valid catalog and shows a warning icon beside
+`快速打开`.
+
+The generated default is:
+
+```json
+{
+  "iconOptions": ["app", "code", "website", "reading", "document", "tools", "data", "video", "music", "ai", "link"],
+  "version": 1,
+  "items": [
+    {
+      "id": "codex",
+      "title": "Codex",
+      "icon": "code",
+      "type": "application",
+      "target": "com.openai.codex"
+    }
+  ]
+}
+```
+
+To add a website, append an item like this inside `items`:
+
+```json
+{
+  "id": "docs",
+  "title": "Docs",
+  "icon": "document",
+  "type": "url",
+  "target": "https://example.com/docs"
+}
+```
+
+To add another macOS application, use `"type": "application"` and place its
+bundle identifier in `target`.
+
+`type` accepts `url` for HTTP/HTTPS pages and `application` for a macOS bundle
+identifier. Each item needs a unique alphanumeric `id`; `-` and `_` are also
+allowed. The file must contain between 1 and 12 items. Up to four entries share
+the row evenly; larger catalogs scroll horizontally.
+
+Available `icon` presets:
+
+- `app`: general applications
+- `code`: development and terminals
+- `website`: general websites
+- `reading`: books and learning
+- `document`: documents and notes
+- `tools`: utilities
+- `data`: dashboards and analytics
+- `video`: video sites
+- `music`: music sites
+- `ai`: AI tools
+- `link`: generic links
 
 ## Build And Test
 

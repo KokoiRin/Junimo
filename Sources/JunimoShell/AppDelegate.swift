@@ -42,12 +42,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activityObservation?.cancel()
         activityObservation = nil
         shellState?.stop()
+        panelController?.stop()
+        panelController = nil
         lifecycleWindow?.close()
         lifecycleWindow = nil
     }
 
     @objc private func showPanelFromMenu() {
         panelController?.expandAndShow()
+    }
+
+    @objc private func editQuickLaunchesFromMenu() {
+        panelController?.openQuickLaunchConfiguration()
     }
 
     @objc private func quitFromMenu() {
@@ -60,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Junimo")
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Show Junimo", action: #selector(showPanelFromMenu), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Edit Quick Launches…", action: #selector(editQuickLaunchesFromMenu), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Junimo", action: #selector(quitFromMenu), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }

@@ -13,6 +13,7 @@ final class JunimoPanel: NSPanel {
 @MainActor
 final class NotchPanelController {
     private let state: ShellState
+    private let quickLaunchStore: QuickLaunchConfigurationStore
     private let panel: JunimoPanel
     private let panelWidth = JunimoPanelLayout.collapsedWidth
     private let expandedSize = NSSize(
@@ -26,8 +27,14 @@ final class NotchPanelController {
         panel.isVisible
     }
 
-    init(state: ShellState) {
+    convenience init(state: ShellState) {
+        self.init(state: state, quickLaunchStore: QuickLaunchConfigurationStore())
+    }
+
+    init(state: ShellState, quickLaunchStore: QuickLaunchConfigurationStore) {
         self.state = state
+        self.quickLaunchStore = quickLaunchStore
+        quickLaunchStore.start()
         panel = JunimoPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -43,7 +50,9 @@ final class NotchPanelController {
         panel.ignoresMouseEvents = false
         panel.animationBehavior = .none
         panel.level = topWindowLevel
-        panel.contentView = NSHostingView(rootView: JunimoSurfaceView(state: state))
+        panel.contentView = NSHostingView(
+            rootView: JunimoSurfaceView(state: state, quickLaunchStore: quickLaunchStore)
+        )
 
         state.expansionDidChange = { [weak self] expanded in
             // ShellState 已在主线程；同步调整窗口，避免大视图先在旧 frame 中短暂绘制。
@@ -84,6 +93,16 @@ final class NotchPanelController {
     func expandAndShow() {
         state.pointerEntered()
         show()
+    }
+
+    func stop() {
+        quickLaunchStore.stop()
+        panel.orderOut(nil)
+    }
+
+    func openQuickLaunchConfiguration() {
+        quickLaunchStore.reloadFromDisk()
+        NSWorkspace.shared.open(quickLaunchStore.fileURL)
     }
 
     private func resize(expanded: Bool) {

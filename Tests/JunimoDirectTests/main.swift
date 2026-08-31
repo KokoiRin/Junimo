@@ -80,22 +80,69 @@ final class FakeWorkspace: QuickLaunchOpening {
     }
 }
 
-// 默认目录只应包含应用类 Codex 和网页类 RIN，并通过各自的 workspace 动作执行。
+// 新安装的默认目录只应包含 Codex，并通过稳定 Bundle ID 打开本机应用。
 let workspace = FakeWorkspace()
 let launcher = QuickLauncher(workspace: workspace)
-let sections = QuickLaunchCatalog.sections
-expect(sections.map(\.category) == [.application, .website], "Catalog should group applications before websites")
-expect(sections.flatMap(\.commands).map(\.id) == ["codex", "rin"], "Catalog should expose only Codex and RIN")
+expect(QuickLaunchCatalog.commands.map(\.id) == ["codex"], "The default catalog should expose only Codex")
 
 let codexCommand = QuickLaunchCatalog.commands.first { $0.id == "codex" }!
-let rinCommand = QuickLaunchCatalog.commands.first { $0.id == "rin" }!
 expect(launcher.open(codexCommand), "Codex shortcut should open")
-expect(launcher.open(rinCommand), "RIN shortcut should open")
 expect(workspace.applicationBundleIdentifiers == ["com.openai.codex"], "Codex should route by bundle identifier")
+
+// 用户配置的网页、应用和图标预设应按文件顺序转换为已校验入口，视图无需理解 JSON 字段。
+let customConfiguration = QuickLaunchConfiguration(items: [
+    QuickLaunchItemConfiguration(
+        id: "docs",
+        title: "文档",
+        icon: "document",
+        type: .url,
+        target: "https://example.com/docs"
+    ),
+    QuickLaunchItemConfiguration(
+        id: "notes",
+        title: "备忘录",
+        icon: "app",
+        type: .application,
+        target: "com.apple.Notes"
+    )
+])
+let customCommands = try QuickLaunchCatalog.decode(QuickLaunchCatalog.encode(customConfiguration))
+expect(customCommands.map(\.id) == ["docs", "notes"], "Custom catalog should preserve configured order")
+expect(customCommands.map(\.systemImage) == ["doc.text.fill", "app.fill"], "Icon presets should map to stable symbols")
+expect(launcher.open(customCommands[0]), "A configured website should open")
+expect(launcher.open(customCommands[1]), "A configured application should open")
+expect(workspace.URLs == [URL(string: "https://example.com/docs")!], "A website should preserve its configured HTTPS target")
 expect(
-    workspace.URLs == [URL(string: "https://kokoirin.github.io/rin3/")!],
-    "RIN should preserve its fixed HTTPS destination"
+    workspace.applicationBundleIdentifiers == ["com.openai.codex", "com.apple.Notes"],
+    "A custom application should append its configured bundle identifier"
 )
+
+// 配置出现重复 id 或非网页协议时必须整体拒绝，避免 SwiftUI 身份冲突或执行危险目标。
+let duplicateConfiguration = QuickLaunchConfiguration(items: [
+    QuickLaunchItemConfiguration(id: "same", title: "A", icon: "link", type: .url, target: "https://example.com/a"),
+    QuickLaunchItemConfiguration(id: "same", title: "B", icon: "link", type: .url, target: "https://example.com/b")
+])
+do {
+    _ = try QuickLaunchCatalog.commands(from: duplicateConfiguration)
+    expect(false, "Duplicate IDs should be rejected")
+} catch let error as QuickLaunchConfigurationError {
+    expect(error == .duplicateID("same"), "Duplicate IDs should report the conflicting identity")
+}
+let unsafeConfiguration = QuickLaunchConfiguration(items: [
+    QuickLaunchItemConfiguration(id: "script", title: "脚本", icon: "tools", type: .url, target: "file:///tmp/run.sh")
+])
+do {
+    _ = try QuickLaunchCatalog.commands(from: unsafeConfiguration)
+    expect(false, "Non-web URLs should be rejected")
+} catch let error as QuickLaunchConfigurationError {
+    expect(error == .invalidURLTarget("file:///tmp/run.sh"), "Unsafe URLs should report their target")
+}
+
+// 公开图标类型应覆盖常见应用、网页、阅读、内容和工具入口，且每种都映射到非空系统图标。
+expect(QuickLaunchIconPreset.allCases.count == 11, "The documented icon preset set should stay complete")
+expect(QuickLaunchIconPreset.allCases.allSatisfy { !$0.systemImage.isEmpty }, "Every icon preset should render a symbol")
+let generatedDefaultJSON = String(decoding: try QuickLaunchCatalog.encode(QuickLaunchCatalog.defaultConfiguration), as: UTF8.self)
+expect(generatedDefaultJSON.contains("\"iconOptions\""), "The generated file should show users every selectable icon name")
 
 // 菜单栏 inset 为正常值或隐藏值时，折叠高度应跟随真实高度并保留 28pt 下限。
 expect(NotchPanelMetrics.collapsedHeight(screenTop: 1000, visibleTop: 967) == 33, "Panel should follow the menu bar")

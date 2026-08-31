@@ -2,8 +2,10 @@ import JunimoCore
 import SwiftUI
 
 // JunimoSurfaceView 在折叠 Codex 摘要与展开 companion 面板之间切换。
+@MainActor
 struct JunimoSurfaceView: View {
     @ObservedObject var state: ShellState
+    @ObservedObject var quickLaunchStore: QuickLaunchConfigurationStore
     private let launcher: QuickLauncher
 
     init(
@@ -11,6 +13,17 @@ struct JunimoSurfaceView: View {
         launcher: QuickLauncher = QuickLauncher(workspace: MacQuickLaunchWorkspace())
     ) {
         self.state = state
+        self.quickLaunchStore = QuickLaunchConfigurationStore()
+        self.launcher = launcher
+    }
+
+    init(
+        state: ShellState,
+        quickLaunchStore: QuickLaunchConfigurationStore,
+        launcher: QuickLauncher = QuickLauncher(workspace: MacQuickLaunchWorkspace())
+    ) {
+        self.state = state
+        self.quickLaunchStore = quickLaunchStore
         self.launcher = launcher
     }
 
@@ -50,16 +63,21 @@ struct JunimoSurfaceView: View {
                 .frame(height: 1)
                 .padding(.vertical, 18)
 
-            Text("快速打开")
-                .font(.system(size: JunimoTypography.caption, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.46))
-                .padding(.bottom, 10)
-
-            HStack(spacing: 10) {
-                ForEach(QuickLaunchCatalog.commands) { command in
-                    shortcutButton(command)
+            HStack(spacing: 8) {
+                Text("快速打开")
+                    .font(.system(size: JunimoTypography.caption, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.46))
+                if let error = quickLaunchStore.lastErrorDescription {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.orange.opacity(0.9))
+                        .help(error)
                 }
+                Spacer()
             }
+            .padding(.bottom, 10)
+
+            shortcutRow
         }
         .padding(.horizontal, 24)
         .padding(.top, 22)
@@ -73,6 +91,27 @@ struct JunimoSurfaceView: View {
         )
         .clipShape(TopAttachedPanelShape(bottomRadius: 22))
         .accessibilityIdentifier("companion.surface")
+    }
+
+    @ViewBuilder
+    private var shortcutRow: some View {
+        if quickLaunchStore.commands.count <= 4 {
+            HStack(spacing: 10) {
+                ForEach(quickLaunchStore.commands) { command in
+                    shortcutButton(command)
+                }
+            }
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 10) {
+                    ForEach(quickLaunchStore.commands) { command in
+                        shortcutButton(command)
+                            .frame(width: 112)
+                    }
+                }
+            }
+            .frame(height: 74)
+        }
     }
 
     private var usageCard: some View {
