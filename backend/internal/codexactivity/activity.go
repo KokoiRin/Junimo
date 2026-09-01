@@ -137,6 +137,7 @@ func (monitor *Monitor) Refresh(ctx context.Context) {
 		monitor.seen[event.ID] = struct{}{}
 	}
 	monitor.lastSuccessfulScanAt = now
+	monitor.pending = publishablePendingEvents(monitor.pending, threads, now)
 	monitor.snapshot.Status = StatusAvailable
 	monitor.snapshot.Message = ""
 	if len(monitor.pending) > 0 {
@@ -144,6 +145,31 @@ func (monitor *Monitor) Refresh(ctx context.Context) {
 		monitor.pending = monitor.pending[1:]
 		monitor.snapshot.CompletionEvent = &event
 	}
+}
+
+// publishablePendingEvents 在真正发布前再次检查队列，防止等待期间已继续运行的会话收到迟到提醒。
+func publishablePendingEvents(events []CompletionEvent, threads []Thread, now int64) []CompletionEvent {
+	runningThreads := make(map[string]struct{})
+	for _, thread := range threads {
+		for _, turn := range thread.Turns {
+			if turn.Status == TurnStatusInProgress {
+				runningThreads[thread.ID] = struct{}{}
+				break
+			}
+		}
+	}
+
+	publishable := events[:0]
+	for _, event := range events {
+		if _, running := runningThreads[event.ThreadID]; running {
+			continue
+		}
+		if !isFreshCompletion(event, 0, now) {
+			continue
+		}
+		publishable = append(publishable, event)
+	}
+	return publishable
 }
 
 // latestIdleCompletionEvents 每个空闲会话只保留最新完成，避免历史 turn 补发和继续对话后的迟到提醒。

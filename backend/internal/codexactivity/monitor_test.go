@@ -164,6 +164,49 @@ func TestMonitorPublishesEveryCompletionAcrossRefreshes(t *testing.T) {
 	}
 }
 
+// 多个任务同时完成而排队发布时，尚未轮到的会话若已开始下一轮，其旧完成事件应从队列中移除。
+func TestMonitorDropsQueuedCompletionWhenThreadStartsRunningAgain(t *testing.T) {
+	current := int64(100)
+	scanner := &fakeScanner{}
+	monitor := testMonitorAt(scanner, &current)
+	monitor.Refresh(context.Background())
+
+	current = 103
+	scanner.set([]Thread{
+		completedThread("thread-first", "turn-first", "先完成", 101),
+		completedThread("thread-queued", "turn-queued", "排队等待", 102),
+	}, nil)
+	monitor.Refresh(context.Background())
+	first := monitor.Snapshot().CompletionEvent
+	if first == nil || first.ID != "turn-first" {
+		t.Fatalf("completion event = %#v, want first turn", first)
+	}
+
+	current = 104
+	scanner.set([]Thread{
+		completedThread("thread-first", "turn-first", "先完成", 101),
+		{
+			ID:   "thread-queued",
+			Name: "排队等待",
+			Turns: []Turn{
+				{ID: "turn-queued", Status: TurnStatusCompleted, CompletedAt: 102},
+				{ID: "turn-running", Status: TurnStatusInProgress},
+			},
+		},
+	}, nil)
+	monitor.Refresh(context.Background())
+
+	current = 105
+	scanner.set([]Thread{
+		completedThread("thread-first", "turn-first", "先完成", 101),
+		completedThread("thread-queued", "turn-queued", "排队等待", 102),
+	}, nil)
+	monitor.Refresh(context.Background())
+	if event := monitor.Snapshot().CompletionEvent; event == nil || event.ID != "turn-first" {
+		t.Fatalf("completion event = %#v, want queued turn to stay suppressed", event)
+	}
+}
+
 // 一个会话重新进入最近列表时，即使携带此前从未扫描过的历史完成记录，也不能补发过期提醒。
 func TestMonitorDoesNotReplayHistoricalCompletionFromReturningThread(t *testing.T) {
 	current := int64(100)
