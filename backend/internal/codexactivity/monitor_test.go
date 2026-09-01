@@ -40,6 +40,12 @@ func completedThread(threadID string, turnID string, title string, completedAt i
 	}
 }
 
+func testMonitorAt(source scanner, current *int64) *Monitor {
+	monitor := NewMonitor(source)
+	monitor.now = func() time.Time { return time.Unix(*current, 0) }
+	return monitor
+}
+
 // 已有历史完成任务只用于建立启动基线，首次刷新不得制造过期提醒。
 func TestMonitorBaselinesHistoricalCompletions(t *testing.T) {
 	scanner := &fakeScanner{threads: []Thread{completedThread("thread-old", "turn-old", "旧任务", 10)}}
@@ -57,10 +63,12 @@ func TestMonitorBaselinesHistoricalCompletions(t *testing.T) {
 
 // 基线完成后出现的新 completed turn 应发布包含稳定身份和任务标题的一次事件。
 func TestMonitorPublishesNewCompletedTurn(t *testing.T) {
+	current := int64(10)
 	scanner := &fakeScanner{threads: []Thread{completedThread("thread-1", "turn-1", "实现轻量提醒", 10)}}
-	monitor := NewMonitor(scanner)
+	monitor := testMonitorAt(scanner, &current)
 	monitor.Refresh(context.Background())
 
+	current = 20
 	scanner.threads = append(scanner.threads, completedThread("thread-2", "turn-2", "整理快捷入口", 20))
 	monitor.Refresh(context.Background())
 
@@ -97,9 +105,11 @@ func TestMonitorUsesReadableFallbackTitles(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			current := int64(9)
 			scanner := &fakeScanner{}
-			monitor := NewMonitor(scanner)
+			monitor := testMonitorAt(scanner, &current)
 			monitor.Refresh(context.Background())
+			current = 10
 			scanner.set([]Thread{test.thread}, nil)
 			monitor.Refresh(context.Background())
 
@@ -113,13 +123,16 @@ func TestMonitorUsesReadableFallbackTitles(t *testing.T) {
 
 // 已发布 turn 再次出现时不能挡住后续新 turn，下一次公开事件应直接前进到新完成任务。
 func TestMonitorDuplicateDoesNotDelayNextCompletion(t *testing.T) {
+	current := int64(9)
 	scanner := &fakeScanner{threads: []Thread{}}
-	monitor := NewMonitor(scanner)
+	monitor := testMonitorAt(scanner, &current)
 	monitor.Refresh(context.Background())
 
+	current = 10
 	scanner.threads = []Thread{completedThread("thread-1", "turn-1", "只提醒一次", 10)}
 	monitor.Refresh(context.Background())
 	first := monitor.Snapshot().CompletionEvent
+	current = 20
 	scanner.threads = append(scanner.threads, completedThread("thread-2", "turn-2", "后续任务", 20))
 	monitor.Refresh(context.Background())
 	second := monitor.Snapshot().CompletionEvent
@@ -131,10 +144,12 @@ func TestMonitorDuplicateDoesNotDelayNextCompletion(t *testing.T) {
 
 // 两个会话在同一扫描间隔内完成时，监控器应逐次发布两条稳定事件而不是只保留最后一条。
 func TestMonitorPublishesEveryCompletionAcrossRefreshes(t *testing.T) {
+	current := int64(9)
 	scanner := &fakeScanner{threads: []Thread{}}
-	monitor := NewMonitor(scanner)
+	monitor := testMonitorAt(scanner, &current)
 	monitor.Refresh(context.Background())
 
+	current = 20
 	scanner.threads = []Thread{
 		completedThread("thread-1", "turn-1", "第一个任务", 10),
 		completedThread("thread-2", "turn-2", "第二个任务", 20),
@@ -146,6 +161,110 @@ func TestMonitorPublishesEveryCompletionAcrossRefreshes(t *testing.T) {
 
 	if first == nil || second == nil || first.ID != "turn-1" || second.ID != "turn-2" {
 		t.Fatalf("events = %#v then %#v, want both completions in order", first, second)
+	}
+}
+
+// 一个会话重新进入最近列表时，即使携带此前从未扫描过的历史完成记录，也不能补发过期提醒。
+func TestMonitorDoesNotReplayHistoricalCompletionFromReturningThread(t *testing.T) {
+	current := int64(100)
+	scanner := &fakeScanner{}
+	monitor := testMonitorAt(scanner, &current)
+	monitor.Refresh(context.Background())
+
+	current = 103
+	scanner.set([]Thread{completedThread("thread-returned", "turn-old", "重新出现的旧任务", 80)}, nil)
+	monitor.Refresh(context.Background())
+	if event := monitor.Snapshot().CompletionEvent; event != nil {
+		t.Fatalf("completion event = %#v, want nil for historical turn", event)
+	}
+}
+
+// 同一会话的上一轮刚完成但下一轮已经开始时，用户已继续交互，不应再弹出上一轮的迟到提醒。
+func TestMonitorSuppressesCompletionWhenThreadIsAlreadyRunningAgain(t *testing.T) {
+	current := int64(100)
+	scanner := &fakeScanner{}
+	monitor := testMonitorAt(scanner, &current)
+	monitor.Refresh(context.Background())
+
+	current = 103
+	scanner.set([]Thread{{
+		ID:   "thread-active",
+		Name: "继续对话",
+		Turns: []Turn{
+			{ID: "turn-completed", Status: TurnStatusCompleted, CompletedAt: 102},
+			{ID: "turn-running", Status: TurnStatusInProgress},
+		},
+	}}, nil)
+	monitor.Refresh(context.Background())
+	if event := monitor.Snapshot().CompletionEvent; event != nil {
+		t.Fatalf("completion event = %#v, want nil while next turn is running", event)
+	}
+
+	current = 104
+	scanner.set([]Thread{completedThread("thread-active", "turn-completed", "继续对话", 102)}, nil)
+	monitor.Refresh(context.Background())
+	if event := monitor.Snapshot().CompletionEvent; event != nil {
+		t.Fatalf("completion event = %#v, want suppressed turn to stay consumed", event)
+	}
+}
+
+// 同一会话在一次扫描中带回多条完成历史时，只提醒最新完成的一轮，旧轮次仅用于去重基线。
+func TestMonitorPublishesOnlyLatestCompletionFromOneThread(t *testing.T) {
+	current := int64(100)
+	scanner := &fakeScanner{}
+	monitor := testMonitorAt(scanner, &current)
+	monitor.Refresh(context.Background())
+
+	current = 103
+	scanner.set([]Thread{{
+		ID:   "thread-many-turns",
+		Name: "连续任务",
+		Turns: []Turn{
+			{ID: "turn-old", Status: TurnStatusCompleted, CompletedAt: 90},
+			{ID: "turn-latest", Status: TurnStatusCompleted, CompletedAt: 102},
+		},
+	}}, nil)
+	monitor.Refresh(context.Background())
+	event := monitor.Snapshot().CompletionEvent
+	if event == nil || event.ID != "turn-latest" {
+		t.Fatalf("completion event = %#v, want only latest turn", event)
+	}
+}
+
+// 扫描故障持续超过新鲜窗口后才恢复时，故障期间很早完成的任务不应作为迟到通知补发。
+func TestMonitorDropsStaleCompletionAfterRecovery(t *testing.T) {
+	current := int64(100)
+	scanner := &fakeScanner{}
+	monitor := testMonitorAt(scanner, &current)
+	monitor.Refresh(context.Background())
+
+	current = 105
+	scanner.set(nil, errors.New("temporary failure"))
+	monitor.Refresh(context.Background())
+	current = 130
+	scanner.set([]Thread{completedThread("thread-stale", "turn-stale", "故障期间完成", 110)}, nil)
+	monitor.Refresh(context.Background())
+	if event := monitor.Snapshot().CompletionEvent; event != nil {
+		t.Fatalf("completion event = %#v, want nil after freshness window", event)
+	}
+}
+
+// 短暂扫描故障恢复时，仍在新鲜窗口内且发生于上次成功扫描后的完成任务应正常提醒。
+func TestMonitorPublishesFreshCompletionAfterRecovery(t *testing.T) {
+	current := int64(100)
+	scanner := &fakeScanner{}
+	monitor := testMonitorAt(scanner, &current)
+	monitor.Refresh(context.Background())
+
+	current = 105
+	scanner.set(nil, errors.New("temporary failure"))
+	monitor.Refresh(context.Background())
+	current = 116
+	scanner.set([]Thread{completedThread("thread-fresh", "turn-fresh", "短暂故障期间完成", 110)}, nil)
+	monitor.Refresh(context.Background())
+	event := monitor.Snapshot().CompletionEvent
+	if event == nil || event.ID != "turn-fresh" {
+		t.Fatalf("completion event = %#v, want fresh recovered turn", event)
 	}
 }
 
@@ -185,7 +304,7 @@ func TestMonitorStartRefreshesImmediatelyAndRetries(t *testing.T) {
 	waitForActivityStatus(t, monitor, StatusUnavailable)
 	scanner.set([]Thread{}, nil)
 	waitForActivityStatus(t, monitor, StatusAvailable)
-	scanner.set([]Thread{completedThread("thread-1", "turn-1", "后台完成", 20)}, nil)
+	scanner.set([]Thread{completedThread("thread-1", "turn-1", "后台完成", time.Now().Unix())}, nil)
 
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {

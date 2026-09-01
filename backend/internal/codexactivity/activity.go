@@ -22,10 +22,13 @@ const (
 type TurnStatus string
 
 const (
+	TurnStatusInProgress  TurnStatus = "inProgress"
 	TurnStatusCompleted   TurnStatus = "completed"
 	TurnStatusFailed      TurnStatus = "failed"
 	TurnStatusInterrupted TurnStatus = "interrupted"
 )
+
+const completionFreshnessWindow = 15 * time.Second
 
 // Turn 是完成检测所需的最小 Codex turn 投影。
 type Turn struct {
@@ -64,18 +67,21 @@ type scanner interface {
 
 // Monitor 负责启动基线、完成去重与适配器错误隔离。
 type Monitor struct {
-	mu          sync.RWMutex
-	scanner     scanner
-	initialized bool
-	seen        map[string]struct{}
-	pending     []CompletionEvent
-	snapshot    Snapshot
+	mu                   sync.RWMutex
+	scanner              scanner
+	now                  func() time.Time
+	initialized          bool
+	lastSuccessfulScanAt int64
+	seen                 map[string]struct{}
+	pending              []CompletionEvent
+	snapshot             Snapshot
 }
 
 // NewMonitor 创建尚未完成首次基线扫描的活动监控器。
 func NewMonitor(source scanner) *Monitor {
 	return &Monitor{
 		scanner:  source,
+		now:      time.Now,
 		seen:     make(map[string]struct{}),
 		snapshot: Snapshot{Status: StatusLoading},
 	}
@@ -96,6 +102,7 @@ func (monitor *Monitor) Snapshot() Snapshot {
 // Refresh 扫描新完成 turn；首次成功只建立基线，避免启动时重放历史通知。
 func (monitor *Monitor) Refresh(ctx context.Context) {
 	threads, err := monitor.scanner.Scan(ctx)
+	now := monitor.now().Unix()
 	monitor.mu.Lock()
 	defer monitor.mu.Unlock()
 	if err != nil {
@@ -110,18 +117,26 @@ func (monitor *Monitor) Refresh(ctx context.Context) {
 			monitor.seen[event.ID] = struct{}{}
 		}
 		monitor.initialized = true
+		monitor.lastSuccessfulScanAt = now
 		monitor.snapshot = Snapshot{Status: StatusAvailable}
 		return
 	}
 
-	for index := range completed {
-		event := completed[index]
+	candidates := latestIdleCompletionEvents(threads)
+	for index := range candidates {
+		event := candidates[index]
 		if _, exists := monitor.seen[event.ID]; exists {
 			continue
 		}
-		monitor.seen[event.ID] = struct{}{}
+		if !isFreshCompletion(event, monitor.lastSuccessfulScanAt, now) {
+			continue
+		}
 		monitor.pending = append(monitor.pending, event)
 	}
+	for _, event := range completed {
+		monitor.seen[event.ID] = struct{}{}
+	}
+	monitor.lastSuccessfulScanAt = now
 	monitor.snapshot.Status = StatusAvailable
 	monitor.snapshot.Message = ""
 	if len(monitor.pending) > 0 {
@@ -129,6 +144,47 @@ func (monitor *Monitor) Refresh(ctx context.Context) {
 		monitor.pending = monitor.pending[1:]
 		monitor.snapshot.CompletionEvent = &event
 	}
+}
+
+// latestIdleCompletionEvents 每个空闲会话只保留最新完成，避免历史 turn 补发和继续对话后的迟到提醒。
+func latestIdleCompletionEvents(threads []Thread) []CompletionEvent {
+	events := make([]CompletionEvent, 0, len(threads))
+	for _, thread := range threads {
+		var latest *Turn
+		running := false
+		for index := range thread.Turns {
+			turn := &thread.Turns[index]
+			if turn.Status == TurnStatusInProgress {
+				running = true
+			}
+			if turn.Status != TurnStatusCompleted || turn.ID == "" {
+				continue
+			}
+			if latest == nil || turn.CompletedAt > latest.CompletedAt ||
+				(turn.CompletedAt == latest.CompletedAt && turn.ID > latest.ID) {
+				latest = turn
+			}
+		}
+		if running || latest == nil {
+			continue
+		}
+		events = append(events, CompletionEvent{
+			ID:          latest.ID,
+			ThreadID:    thread.ID,
+			Title:       threadTitle(thread),
+			CompletedAt: latest.CompletedAt,
+		})
+	}
+	sortCompletionEvents(events)
+	return events
+}
+
+// isFreshCompletion 只接受上次成功扫描之后刚落盘的完成事实，错误恢复时也不补发过期提醒。
+func isFreshCompletion(event CompletionEvent, lastSuccessfulScanAt int64, now int64) bool {
+	if event.CompletedAt <= 0 || event.CompletedAt < lastSuccessfulScanAt || event.CompletedAt > now {
+		return false
+	}
+	return time.Duration(now-event.CompletedAt)*time.Second <= completionFreshnessWindow
 }
 
 // Start 立即刷新并按固定间隔重试；超时只结束当次扫描，不终止后续恢复机会。
@@ -173,13 +229,17 @@ func completedEvents(threads []Thread) []CompletionEvent {
 			})
 		}
 	}
+	sortCompletionEvents(events)
+	return events
+}
+
+func sortCompletionEvents(events []CompletionEvent) {
 	sort.Slice(events, func(left int, right int) bool {
 		if events[left].CompletedAt == events[right].CompletedAt {
 			return events[left].ID < events[right].ID
 		}
 		return events[left].CompletedAt < events[right].CompletedAt
 	})
-	return events
 }
 
 // threadTitle 统一完成通知可见标题的降级顺序。
