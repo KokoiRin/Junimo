@@ -1,4 +1,4 @@
-package codexusage
+package codexappserver
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// ResolveExecutable 返回当前机器上第一个可实际运行的 Codex 可执行文件。
 func ResolveExecutable() string {
 	var candidates []string
 	if configured := os.Getenv("JUNIMO_CODEX_EXECUTABLE"); configured != "" {

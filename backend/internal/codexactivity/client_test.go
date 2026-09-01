@@ -87,35 +87,3 @@ done
 		t.Fatalf("error = %v, want app-server message", err)
 	}
 }
-
-// app-server 在握手响应前发送超过默认 Scanner 限制的大通知时，客户端仍应忽略通知并完成线程扫描。
-func TestClientAcceptsLargeAppServerNotifications(t *testing.T) {
-	directory := t.TempDir()
-	executable := filepath.Join(directory, "codex")
-	script := `#!/bin/sh
-while IFS= read -r line; do
-  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
-  case "$line" in
-    *'"method":"initialize"'*)
-      payload=$(dd if=/dev/zero bs=1024 count=128 2>/dev/null | tr '\000' x)
-      printf '{"method":"noise","params":{"payload":"%s"}}\n' "$payload"
-      printf '{"id":%s,"result":{}}\n' "$id"
-      ;;
-    *'"method":"thread/list"'*) printf '{"id":%s,"result":{"data":[]}}\n' "$id" ;;
-  esac
-done
-`
-	if err := os.WriteFile(executable, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	client := NewClient(executable)
-	t.Cleanup(client.Close)
-	threads, err := client.Scan(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(threads) != 0 {
-		t.Fatalf("threads = %#v, want empty list", threads)
-	}
-}

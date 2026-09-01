@@ -1,4 +1,4 @@
-package main
+package companion
 
 import (
 	"encoding/json"
@@ -10,9 +10,9 @@ import (
 	"junimo/backend/internal/codexusage"
 )
 
-// 轻量后端健康检查必须声明 v5，让旧 Swift 客户端拒绝不兼容快照。
-func TestCompanionHealthReportsProtocolFive(t *testing.T) {
-	handler := newCompanionHandler(
+// 轻量后端收到健康检查时必须声明协议 v5，让旧 Swift 客户端拒绝不兼容快照。
+func TestHealthReportsProtocolFive(t *testing.T) {
+	handler := newHandler(
 		func() codexusage.Snapshot { return codexusage.Snapshot{Status: codexusage.StatusLoading} },
 		func() codexactivity.Snapshot { return codexactivity.Snapshot{Status: codexactivity.StatusLoading} },
 	)
@@ -29,9 +29,9 @@ func TestCompanionHealthReportsProtocolFive(t *testing.T) {
 	}
 }
 
-// v5 状态只公开 revision、Codex 用量和 activity，避免未使用字段扩大跨进程契约。
-func TestCompanionStateContainsOnlyUsageAndActivity(t *testing.T) {
-	handler := newCompanionHandler(
+// v5 状态读取只公开 revision、Codex 用量和 activity，避免未使用字段扩大跨进程契约。
+func TestStateContainsOnlyUsageAndActivity(t *testing.T) {
+	handler := newHandler(
 		func() codexusage.Snapshot {
 			return codexusage.Snapshot{
 				Status:  codexusage.StatusAvailable,
@@ -51,19 +51,19 @@ func TestCompanionStateContainsOnlyUsageAndActivity(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/state", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	var state map[string]json.RawMessage
-	if err := json.Unmarshal(response.Body.Bytes(), &state); err != nil {
+	var current map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &current); err != nil {
 		t.Fatal(err)
 	}
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
 	}
 	for _, key := range []string{"revision", "codex", "activity"} {
-		if _, exists := state[key]; !exists {
+		if _, exists := current[key]; !exists {
 			t.Fatalf("state missing %q: %s", key, response.Body.String())
 		}
 	}
-	if len(state) != 3 {
-		t.Fatalf("state fields = %v, want exactly revision, codex, activity", state)
+	if len(current) != 3 {
+		t.Fatalf("state fields = %v, want exactly revision, codex, activity", current)
 	}
 }

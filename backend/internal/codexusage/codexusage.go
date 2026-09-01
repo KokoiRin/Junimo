@@ -36,12 +36,14 @@ type rateLimitWindow struct {
 }
 
 type rateLimitsResponse struct {
-	Result struct {
-		RateLimits struct {
-			Primary   *rateLimitWindow `json:"primary"`
-			Secondary *rateLimitWindow `json:"secondary"`
-		} `json:"rateLimits"`
-	} `json:"result"`
+	Result rateLimitsResult `json:"result"`
+}
+
+type rateLimitsResult struct {
+	RateLimits struct {
+		Primary   *rateLimitWindow `json:"primary"`
+		Secondary *rateLimitWindow `json:"secondary"`
+	} `json:"rateLimits"`
 }
 
 func ParseRateLimits(data []byte) (Snapshot, error) {
@@ -49,13 +51,17 @@ func ParseRateLimits(data []byte) (Snapshot, error) {
 	if err := json.Unmarshal(data, &response); err != nil {
 		return Snapshot{}, err
 	}
-	if response.Result.RateLimits.Primary == nil {
+	return snapshotFromRateLimits(response.Result)
+}
+
+func snapshotFromRateLimits(result rateLimitsResult) (Snapshot, error) {
+	if result.RateLimits.Primary == nil {
 		return Snapshot{}, errors.New("codex rate limit response has no primary window")
 	}
 	return Snapshot{
 		Status:    StatusAvailable,
-		Primary:   windowSnapshot(response.Result.RateLimits.Primary),
-		Secondary: windowSnapshot(response.Result.RateLimits.Secondary),
+		Primary:   windowSnapshot(result.RateLimits.Primary),
+		Secondary: windowSnapshot(result.RateLimits.Secondary),
 	}, nil
 }
 

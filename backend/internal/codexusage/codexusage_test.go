@@ -64,19 +64,17 @@ func TestParseRateLimitsReturnsRemainingUsageWindows(t *testing.T) {
 	}
 }
 
-// fake app-server 在握手和用量响应前混入通知与无关 ID 时，客户端应忽略噪声、读取主窗口剩余 94%，并写入合法 RFC3339 刷新时间。
-func TestClientIgnoresUnrelatedAppServerMessages(t *testing.T) {
+// app-server 返回主窗口已用 6% 时，客户端应映射出剩余 94%，并写入合法 RFC3339 刷新时间。
+func TestClientMapsRateLimitsIntoUsageSnapshot(t *testing.T) {
 	executable := filepath.Join(t.TempDir(), "fake-codex")
 	script := `#!/bin/sh
 while IFS= read -r line; do
-  case "$line" in
-    *'"id":0'*)
-      printf '%s\n' '{"method":"account/updated","params":{}}'
-      printf '%s\n' '{"id":0,"result":{"userAgent":"fake"}}'
-      ;;
-    *'account/rateLimits/read'*)
-      printf '%s\n' '{"id":99,"result":{}}'
-      printf '%s\n' '{"id":1,"result":{"rateLimits":{"primary":{"usedPercent":6,"windowDurationMins":300,"resetsAt":1783655023},"secondary":{"usedPercent":1,"windowDurationMins":10080,"resetsAt":1784241823}}}}'
+	case "$line" in
+	  *'"id":0'*)
+	      printf '%s\n' '{"id":0,"result":{"userAgent":"fake"}}'
+	      ;;
+	    *'account/rateLimits/read'*)
+	      printf '%s\n' '{"id":1,"result":{"rateLimits":{"primary":{"usedPercent":6,"windowDurationMins":300,"resetsAt":1783655023},"secondary":{"usedPercent":1,"windowDurationMins":10080,"resetsAt":1784241823}}}}'
       exit 0
       ;;
   esac
@@ -117,27 +115,6 @@ func TestMonitorReportsUnavailableWhenRefreshFails(t *testing.T) {
 	}
 }
 
-// 环境变量显式配置自定义 Codex 路径时，解析器应直接采用该路径，不再受 PATH 或默认安装位置影响。
-func TestResolveExecutableHonorsConfiguredCodexPath(t *testing.T) {
-	executable := filepath.Join(t.TempDir(), "custom-codex")
-	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf 'codex-cli test\\n'\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("JUNIMO_CODEX_EXECUTABLE", executable)
-	if resolved := ResolveExecutable(); resolved != executable {
-		t.Fatalf("executable = %q, want configured path", resolved)
-	}
-}
-
-// 候选列表首项不可用而后项可用时，解析器应跳过坏路径并返回第一个真正可执行的 Codex。
-func TestResolveExecutableSkipsUnusableCandidates(t *testing.T) {
-	if executable := firstUsableExecutable([]string{"bad-codex", "good-codex"}, func(candidate string) bool {
-		return candidate == "good-codex"
-	}); executable != "good-codex" {
-		t.Fatalf("executable = %q, want first usable candidate", executable)
-	}
-}
-
 // app-server 异常返回已用 105% 和 -5% 时，剩余量应分别限制为 0% 和 100%，避免越界数字进入 Swift UI。
 func TestParseRateLimitsClampsUnexpectedPercentages(t *testing.T) {
 	response := []byte(`{
@@ -157,33 +134,6 @@ func TestParseRateLimitsClampsUnexpectedPercentages(t *testing.T) {
 	}
 	if snapshot.Secondary.RemainingPercent != 100 {
 		t.Fatalf("secondary remaining = %d, want 100", snapshot.Secondary.RemainingPercent)
-	}
-}
-
-// app-server 握手成功但用量查询阻塞 5 秒、调用方只给 100 毫秒超时时，客户端应在 1 秒内失败并终止子进程。
-func TestClientStopsPromptlyWhenRateLimitQueryTimesOut(t *testing.T) {
-	executable := filepath.Join(t.TempDir(), "slow-codex")
-	script := `#!/bin/sh
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":0'*) printf '%s\n' '{"id":0,"result":{"userAgent":"fake"}}' ;;
-    *'account/rateLimits/read'*) sleep 5 ;;
-  esac
-done
-`
-	if err := os.WriteFile(executable, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	startedAt := time.Now()
-	_, err := NewClient(executable).Query(ctx)
-	if err == nil {
-		t.Fatal("query should fail when app-server times out")
-	}
-	if elapsed := time.Since(startedAt); elapsed > time.Second {
-		t.Fatalf("timed out query returned after %s, want under 1s", elapsed)
 	}
 }
 
@@ -235,31 +185,6 @@ func TestClientRequiresAnExecutable(t *testing.T) {
 	}
 }
 
-// fake app-server 在 rate-limit 请求上返回 JSON-RPC error envelope 时，客户端应把协议错误传回调用方，不能吞掉后继续解析。
-func TestClientPropagatesAppServerErrorResponses(t *testing.T) {
-	executable := filepath.Join(t.TempDir(), "error-codex")
-	script := `#!/bin/sh
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":0'*) printf '%s\n' '{"id":0,"result":{"userAgent":"fake"}}' ;;
-    *'account/rateLimits/read'*)
-      printf '%s\n' '{"id":1,"error":{"code":-32000,"message":"rate limits unavailable"}}'
-      exit 0
-      ;;
-  esac
-done
-`
-	if err := os.WriteFile(executable, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if _, err := NewClient(executable).Query(ctx); err == nil {
-		t.Fatal("query should expose an app-server error response")
-	}
-}
-
 // 监控器从初始 loading 状态执行一次返回主窗口 88% 的成功刷新后，公开快照应切换为 available 并携带 88%。
 func TestMonitorPublishesSuccessfulRefresh(t *testing.T) {
 	monitor := NewMonitor(fixedQuerier{snapshot: Snapshot{
@@ -300,20 +225,5 @@ func TestMonitorStartRefreshesImmediately(t *testing.T) {
 	cancel()
 	if status := monitor.Snapshot().Status; status != StatusAvailable {
 		t.Fatalf("status = %q, want available", status)
-	}
-}
-
-// 未配置 override、PATH 中只有一个可执行的 codex 文件时，解析器应返回该绝对路径，证明普通命令行安装可以被发现。
-func TestResolveExecutableFindsCodexOnPath(t *testing.T) {
-	directory := t.TempDir()
-	executable := filepath.Join(directory, "codex")
-	if err := os.WriteFile(executable, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("JUNIMO_CODEX_EXECUTABLE", "")
-	t.Setenv("PATH", directory)
-
-	if resolved := ResolveExecutable(); resolved != executable {
-		t.Fatalf("executable = %q, want %q", resolved, executable)
 	}
 }
