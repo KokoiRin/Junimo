@@ -31,10 +31,10 @@ codex --version
 
 ## 快速开始
 
-克隆当前分支并启动：
+克隆主分支并启动：
 
 ```bash
-git clone --branch codex/lean-codex-companion --single-branch https://github.com/KokoiRin/Junimo.git
+git clone https://github.com/KokoiRin/Junimo.git
 cd Junimo
 scripts/run.sh
 ```
@@ -52,6 +52,12 @@ scripts/build_app.sh
 ditto .build/app/Junimo.app /Applications/Junimo.app
 open /Applications/Junimo.app
 ```
+
+## 下载已构建版本
+
+不想安装开发环境时，可以从 [GitHub Releases](https://github.com/KokoiRin/Junimo/releases/latest) 下载 Apple Silicon 版本。解压后将 `Junimo.app` 拖到“应用程序”目录即可。
+
+当前发布包使用开发者本地签名，尚未经过 Apple 公证。如果 macOS 阻止首次打开，请在 Finder 中右键 Junimo，选择“打开”并确认。
 
 ## 日常使用
 
