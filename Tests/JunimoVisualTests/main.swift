@@ -89,7 +89,7 @@ func testCompanionKeepsReadableTypography() {
     guard JunimoTypography.caption >= 12 else { fail("caption should remain at least 12pt") }
 }
 
-// 折叠态应在中央刘海触发区两侧分别画出 Junimo 图标和用量胶囊，中央区域保持视觉透明。
+// 折叠态应在刘海左侧画出用量胶囊、右侧画出 Junimo 快捷图标，中央触发区保持视觉透明。
 @MainActor
 func testCollapsedControlsKeepNotchTriggerClear() {
     let size = CGSize(width: JunimoPanelLayout.collapsedWidth, height: 33)
@@ -119,8 +119,8 @@ func testCollapsedControlsKeepNotchTriggerClear() {
             }
         }
     }
-    guard leftVisible > 20 else { fail("collapsed shell should render the Junimo launcher icon") }
-    guard rightVisible > 20 else { fail("collapsed shell should render the usage capsule") }
+    guard leftVisible > 20 else { fail("collapsed shell should render the usage capsule on the left") }
+    guard rightVisible > 20 else { fail("collapsed shell should render the Junimo launcher icon on the right") }
     guard centerVisible == 0 else { fail("the notch hover trigger should remain visually transparent") }
 }
 

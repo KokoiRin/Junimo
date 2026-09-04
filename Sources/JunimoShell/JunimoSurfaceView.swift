@@ -153,10 +153,10 @@ struct JunimoSurfaceView: View {
     // collapsed 只允许中央刘海净空触发展开；两侧胶囊保持各自的点击或展示职责。
     private var collapsed: some View {
         HStack(spacing: 0) {
-            codexLauncherCapsule
+            codexUsageCapsule
                 .frame(width: JunimoPanelLayout.collapsedCapsuleLaneWidth, alignment: .trailing)
             notchHoverTrigger
-            codexUsageCapsule
+            codexLauncherCapsule
                 .frame(width: JunimoPanelLayout.collapsedCapsuleLaneWidth, alignment: .leading)
         }
         .frame(width: JunimoPanelLayout.collapsedWidth)
