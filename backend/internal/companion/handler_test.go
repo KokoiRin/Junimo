@@ -29,6 +29,28 @@ func TestHealthReportsProtocolFive(t *testing.T) {
 	}
 }
 
+// 前端指定启动实例标识后，健康接口和状态响应都必须携带同一标识，以便拒绝其他后端的响应。
+func TestResponsesIdentifyTheirInstance(t *testing.T) {
+	t.Setenv("JUNIMO_INSTANCE_ID", "owned-instance")
+	handler := newHandler(nil, nil)
+	for _, path := range []string{"/health", "/state"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Header().Get("X-Junimo-Instance-ID") != "owned-instance" {
+			t.Fatalf("%s did not identify the serving instance", path)
+		}
+		if path == "/health" {
+			var health healthResponse
+			if err := json.Unmarshal(response.Body.Bytes(), &health); err != nil {
+				t.Fatal(err)
+			}
+			if health.InstanceID != "owned-instance" {
+				t.Fatalf("health instance = %q", health.InstanceID)
+			}
+		}
+	}
+}
+
 // v5 状态读取只公开 revision、Codex 用量和 activity，避免未使用字段扩大跨进程契约。
 func TestStateContainsOnlyUsageAndActivity(t *testing.T) {
 	handler := newHandler(

@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var completionNotificationGate = CodexCompletionNotificationGate()
     private let notificationService = MacCodexCompletionNotificationService()
     private var allowsTermination = false
+    private var pendingReopen = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         installLifecycleAnchorWindow()
@@ -30,6 +31,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController = controller
         controller.show()
         installStatusItem()
+        if pendingReopen { reopenPanel() }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        reopenPanel()
+        return false
+    }
+
+    func reopenPanel() {
+        guard let panelController else {
+            pendingReopen = true
+            return
+        }
+        pendingReopen = false
+        panelController.expandAndShow()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+bash "$ROOT_DIR/Tests/JunimoRuntimeTests/main.sh"
 BUILD_DIR="$ROOT_DIR/.build/direct"
 mkdir -p "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/module-cache"
@@ -35,6 +36,18 @@ swiftc \
   -Xlinker "$BUILD_DIR"
 
 "$BUILD_DIR/JunimoCoreSmokeTests"
+
+swiftc \
+  -I "$BUILD_DIR" \
+  -L "$BUILD_DIR" \
+  -lJunimoCore \
+  -module-cache-path "$BUILD_DIR/module-cache" \
+  "$ROOT_DIR"/Tests/JunimoInstanceTests/main.swift \
+  -o "$BUILD_DIR/JunimoInstanceTests" \
+  -Xlinker -rpath \
+  -Xlinker "$BUILD_DIR"
+
+"$BUILD_DIR/JunimoInstanceTests"
 
 swiftc \
   -I "$BUILD_DIR" \

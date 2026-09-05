@@ -4,6 +4,7 @@ package companion
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"sync"
 
 	"junimo/backend/internal/codexactivity"
@@ -15,6 +16,7 @@ const protocolVersion = 5
 type healthResponse struct {
 	Status          string `json:"status"`
 	ProtocolVersion int    `json:"protocolVersion"`
+	InstanceID      string `json:"instanceId,omitempty"`
 }
 
 // state 只组合轻量产品仍需公开的两类 Codex 事实。
@@ -60,13 +62,19 @@ func newHandler(
 	}
 	current := &state{usageSnapshot: usageProvider, activitySnapshot: activityProvider}
 	mux := http.NewServeMux()
+	instanceID := os.Getenv("JUNIMO_INSTANCE_ID")
 	mux.HandleFunc("GET /health", func(writer http.ResponseWriter, request *http.Request) {
-		writeJSON(writer, healthResponse{Status: "ok", ProtocolVersion: protocolVersion})
+		writeJSON(writer, healthResponse{Status: "ok", ProtocolVersion: protocolVersion, InstanceID: instanceID})
 	})
 	mux.HandleFunc("GET /state", func(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, current.snapshot())
 	})
-	return mux
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if instanceID != "" {
+			writer.Header().Set("X-Junimo-Instance-ID", instanceID)
+		}
+		mux.ServeHTTP(writer, request)
+	})
 }
 
 func writeJSON(writer http.ResponseWriter, value any) {

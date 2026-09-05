@@ -24,6 +24,11 @@ const (
 
 // Run 装配并运行完整后端；调用方只负责提供进程生命周期。
 func Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if os.Getenv("JUNIMO_INSTANCE_ID") != "" {
+		go cancelWhenParentExits(ctx, cancel, os.Getppid(), os.Getppid)
+	}
 	executable := codexappserver.ResolveExecutable()
 	usageMonitor := codexusage.NewMonitor(codexusage.NewClient(executable))
 	activityMonitor := codexactivity.NewMonitor(codexactivity.NewClient(executable))

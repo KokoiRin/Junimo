@@ -42,6 +42,25 @@ Task {
             "Codex activity should decode independently from usage"
         )
 
+        // 已有同协议后端占用端口时，另一客户端必须启动失败，不能冒用已有后端或关闭它。
+        let duplicate = GoBackendClient(port: port)
+        var rejectedDuplicate = false
+        do {
+            try await duplicate.start()
+        } catch {
+            rejectedDuplicate = true
+        }
+        duplicate.stop()
+        try expect(rejectedDuplicate, "a foreign backend must not satisfy startup")
+        let stillOwned = try await backend.loadState()
+        try expect(stillOwned.revision > second.revision, "original backend must remain usable")
+
+        // 同一客户端重复 start 应复用自己拥有的后端，停止后重新启动则建立新的实例。
+        try await backend.start()
+        backend.stop()
+        try await backend.start()
+        _ = try await backend.loadState()
+
         backend.stop()
         print("Junimo Swift-Go v5 contract tests passed")
         exit(0)
