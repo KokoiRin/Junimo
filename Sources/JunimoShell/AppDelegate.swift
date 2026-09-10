@@ -3,9 +3,10 @@ import Combine
 import JunimoCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var shellState: ShellState?
     private var panelController: NotchPanelController?
+    private var appBarController: AppBarController?
     private var statusItem: NSStatusItem?
     private var lifecycleWindow: NSWindow?
     private var activityObservation: AnyCancellable?
@@ -21,7 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        let state = ShellState()
+        let backend = GoBackendClient()
+        let state = ShellState(backend: backend)
         shellState = state
         observeCodexCompletion(in: state)
         state.start()
@@ -30,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = NotchPanelController(state: state)
         panelController = controller
         controller.show()
+        appBarController = AppBarController(state: state, backend: backend)
         installStatusItem()
         if pendingReopen { reopenPanel() }
     }
@@ -57,6 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         activityObservation?.cancel()
         activityObservation = nil
+        appBarController?.stop()
+        appBarController = nil
         shellState?.stop()
         panelController?.stop()
         panelController = nil
@@ -84,10 +89,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Show Junimo", action: #selector(showPanelFromMenu), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Edit Quick Launches…", action: #selector(editQuickLaunchesFromMenu), keyEquivalent: ""))
         menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "显示应用栏", action: #selector(toggleAppBar), keyEquivalent: ""))
+        let position = NSMenuItem(title: "应用栏位置", action: nil, keyEquivalent: "")
+        let positions = NSMenu()
+        for placement in AppBarPlacement.allCases {
+            let choice = NSMenuItem(title: placement.title, action: #selector(changeAppBarPlacement(_:)), keyEquivalent: "")
+            choice.representedObject = placement.rawValue
+            choice.target = self
+            positions.addItem(choice)
+        }
+        position.submenu = positions
+        menu.addItem(position)
+        menu.addItem(NSMenuItem(title: "管理常用应用…", action: #selector(manageAppShortcuts), keyEquivalent: ""))
+        menu.addItem(.separator())
+        menu.delegate = self
         menu.addItem(NSMenuItem(title: "Quit Junimo", action: #selector(quitFromMenu), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }
         item.menu = menu
         statusItem = item
+    }
+
+    @objc private func toggleAppBar() { appBarController?.presentation.toggle() }
+    @objc private func manageAppShortcuts() { appBarController?.showManager() }
+    @objc private func changeAppBarPlacement(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let value = AppBarPlacement(rawValue: raw) else { return }
+        appBarController?.presentation.setPlacement(value)
+    }
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let presentation = appBarController?.presentation else { return }
+        menu.items.first { $0.action == #selector(toggleAppBar) }?.state = presentation.enabled ? .on : .off
+        for item in menu.items.flatMap({ $0.submenu?.items ?? [] }) {
+            item.state = item.representedObject as? String == presentation.placement.rawValue ? .on : .off
+        }
     }
 
     // observeCodexCompletion 只消费 Go 稳定完成事件，重复 state 轮询不会重复投递。

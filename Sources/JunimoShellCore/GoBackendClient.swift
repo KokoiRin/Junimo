@@ -6,14 +6,14 @@ public protocol ShellBackendClient: AnyObject {
     func loadState() async throws -> SurfaceState
 }
 
-public final class GoBackendClient: ShellBackendClient {
+public final class GoBackendClient: ShellBackendClient, AppShortcutsBackend {
     private struct HealthResponse: Decodable {
         var status: String
         var protocolVersion: Int
         var instanceId: String?
     }
 
-    private static let supportedProtocolVersion = 5
+    private static let supportedProtocolVersion = 6
     private let port: Int
     private var process: Process?
     private var instanceID: String?
@@ -63,6 +63,36 @@ public final class GoBackendClient: ShellBackendClient {
         let (data, response) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("state"))
         try validate(response)
         return try JSONDecoder().decode(SurfaceState.self, from: data)
+    }
+
+    public func loadAppShortcuts() async throws -> AppShortcutList {
+        try await requestShortcuts(items: nil)
+    }
+
+    public func saveAppShortcuts(_ items: [AppShortcut], revision: UInt64) async throws -> AppShortcutList {
+        try await requestShortcuts(items: items, revision: revision)
+    }
+
+    private func requestShortcuts(items: [AppShortcut]?, revision: UInt64 = 0) async throws -> AppShortcutList {
+        guard process?.isRunning == true else { throw BackendError.backendExited }
+        var request = URLRequest(url: baseURL.appendingPathComponent("app-shortcuts"))
+        request.timeoutInterval = 5
+        if let items {
+            request.httpMethod = "PUT"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(instanceID, forHTTPHeaderField: "X-Junimo-Instance-ID")
+            request.httpBody = try JSONEncoder().encode(AppShortcutList(items: items, revision: revision))
+        }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            guard let instanceID, http.value(forHTTPHeaderField: "X-Junimo-Instance-ID") == instanceID else {
+                throw BackendError.instanceMismatch
+            }
+            if http.statusCode == 409 { throw AppShortcutError.conflict }
+            throw AppShortcutError.message(String(data: data, encoding: .utf8) ?? "常用应用请求失败")
+        }
+        try validate(response)
+        return try JSONDecoder().decode(AppShortcutList.self, from: data)
     }
 
     private var baseURL: URL {

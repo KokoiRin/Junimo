@@ -208,7 +208,104 @@ func testQuickLaunchConfigurationHotReloadKeepsLastGoodCatalog() async {
     restartedStore.stop()
 }
 
+final class FakeShortcutsBackend: AppShortcutsBackend {
+    var value = AppShortcutList(items: [AppShortcut(bundleId: "com.test.one", name: "一")])
+    var failSave = false
+    var holdNextRead = false
+    var pendingRead: CheckedContinuation<AppShortcutList, Error>?
+    var capturedRead: AppShortcutList?
+    func loadAppShortcuts() async throws -> AppShortcutList {
+        if holdNextRead {
+            holdNextRead = false
+            capturedRead = value
+            return try await withCheckedThrowingContinuation { pendingRead = $0 }
+        }
+        return value
+    }
+    func saveAppShortcuts(_ items: [AppShortcut], revision: UInt64) async throws -> AppShortcutList {
+        if failSave { throw AppShortcutError.message("磁盘不可写") }
+        guard revision == value.revision else { throw AppShortcutError.conflict }
+        value = AppShortcutList(items: items, revision: value.revision + 1)
+        return value
+    }
+}
+
+// 后端拒绝保存时界面必须保留已确认收藏并展示错误，恢复后保存空列表应清空图标栏并消除错误。
+@MainActor
+func testAppShortcutsKeepConfirmedStateOnFailure() async {
+    let backend = FakeShortcutsBackend()
+    let store = AppShortcutsStore(backend: backend)
+    store.start()
+    await waitUntil("shortcuts should load") { store.isLoaded }
+    backend.failSave = true
+    await store.save([], basedOn: store.revision)
+    guard store.items == backend.value.items, store.error != nil, !store.isSaving else {
+        fail("failed save must preserve confirmed state")
+    }
+    backend.failSave = false
+    await store.save([], basedOn: store.revision)
+    guard store.items.isEmpty, store.error == nil else { fail("confirmed empty list must clear collection") }
+    store.stop()
+}
+
+// 右侧只够四个槽位时应留一个更多入口，宽敞下方最多六个应用，极窄区域应只显示更多或完全隐藏。
+func testAppBarCapacityKeepsOverflowReachable() {
+    let right = AppBarCapacity(count: 8, placement: .right, availableWidth: 128)
+    guard right.visibleCount == 3, right.hasOverflow, right.width == 128 else { fail("overflow must fit right lane") }
+    let below = AppBarCapacity(count: 8, placement: .below, availableWidth: 260)
+    guard below.visibleCount == 6, below.hasOverflow, below.width <= 260 else { fail("below lane capacity incorrect") }
+    let narrow = AppBarCapacity(count: 8, placement: .right, availableWidth: 38)
+    guard narrow.visibleCount == 0, narrow.hasOverflow else { fail("narrow lane must retain more menu") }
+    let absent = AppBarCapacity(count: 8, placement: .right, availableWidth: 20)
+    let empty = AppBarCapacity(count: 0, placement: .right, availableWidth: 158)
+    guard absent.width == 0, empty.width == 0 else { fail("empty or unavailable lane must disappear") }
+}
+
+// 外部更新应自动显示；基于旧版本提交的编辑应提示冲突且不丢失新收藏，按最新版本重试才能保存。
+@MainActor
+func testAppShortcutsRefreshAndRejectStaleEdits() async {
+    let backend = FakeShortcutsBackend()
+    let store = AppShortcutsStore(backend: backend, refreshIntervalNanoseconds: 10_000_000)
+    store.start()
+    defer { store.stop() }
+    await waitUntil("initial collection should load") { store.isLoaded }
+    let oldRevision = store.revision
+    let oldItems = store.items
+    backend.value = AppShortcutList(items: oldItems + [AppShortcut(bundleId: "com.google.Chrome", name: "Chrome")], revision: 2)
+    await waitUntil("external collection should refresh automatically") { store.revision == 2 }
+    guard store.items == backend.value.items else { fail("external app was not shown") }
+    let android = AppShortcut(bundleId: "com.google.android.studio", name: "Android Studio")
+    await store.save(oldItems + [android], basedOn: oldRevision)
+    guard store.error != nil, store.items == backend.value.items, !backend.value.items.contains(android) else {
+        fail("stale edit should be rejected without losing external changes")
+    }
+    await store.save(store.items + [android], basedOn: store.revision)
+    guard store.items.map(\.name) == ["一", "Chrome", "Android Studio"], store.error == nil else { fail("fresh retry failed") }
+}
+
+// 轮询旧快照尚未返回时保存了新列表，迟到的旧响应不得让界面退回保存前的收藏或版本。
+@MainActor
+func testAppShortcutsIgnoreReadOlderThanSave() async {
+    let backend = FakeShortcutsBackend()
+    let store = AppShortcutsStore(backend: backend, refreshIntervalNanoseconds: 10_000_000)
+    store.start()
+    defer { store.stop() }
+    await waitUntil("initial collection should load") { store.isLoaded }
+    backend.holdNextRead = true
+    await waitUntil("background read should be pending") { backend.pendingRead != nil }
+    await store.save([], basedOn: store.revision)
+    guard store.revision == 2 else { fail("new save should have revision two") }
+    backend.pendingRead?.resume(returning: backend.capturedRead!)
+    backend.pendingRead = nil
+    try? await Task.sleep(nanoseconds: 30_000_000)
+    guard store.items.isEmpty, store.revision == 2 else { fail("delayed read rolled back saved collection") }
+}
+
 Task { @MainActor in
+    await testAppShortcutsRefreshAndRejectStaleEdits()
+    await testAppShortcutsIgnoreReadOlderThanSave()
+    await testAppShortcutsKeepConfirmedStateOnFailure()
+    testAppBarCapacityKeepsOverflowReachable()
     await testShellStateLoadsCompanionStateAndManagesHover()
     await testActivityFailureKeepsUsageVisible()
     await testShellStateRejectsOlderSnapshots()

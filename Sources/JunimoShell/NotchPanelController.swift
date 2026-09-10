@@ -110,6 +110,10 @@ final class NotchPanelController {
             panel.setFrame(NSRect(origin: .zero, size: size(on: nil, expanded: expanded)), display: true, animate: false)
             return
         }
+        if let host = panel.contentView as? NSHostingView<JunimoSurfaceView> {
+            let clearance = JunimoScreenGeometry.notchClearance(on: screen)
+            if host.rootView.notchClearance != clearance { host.rootView.notchClearance = clearance }
+        }
         let frame = panelFrame(on: screen, expanded: expanded)
         panel.level = topWindowLevel
         panel.setFrame(frame, display: true, animate: false)
@@ -119,7 +123,7 @@ final class NotchPanelController {
         let screenFrame = screen.frame
         let size = size(on: screen, expanded: expanded)
         return NSRect(
-            x: screenFrame.midX - size.width / 2,
+            x: expanded ? screenFrame.midX - size.width / 2 : screenFrame.midX - JunimoScreenGeometry.notchClearance(on: screen) - JunimoPanelLayout.collapsedCapsuleLaneWidth,
             y: screenFrame.maxY - size.height,
             width: size.width,
             height: size.height
@@ -132,7 +136,7 @@ final class NotchPanelController {
             return NSSize(width: panelWidth, height: NotchPanelMetrics.minimumCollapsedHeight)
         }
         return NSSize(
-            width: panelWidth,
+            width: JunimoPanelLayout.collapsedCapsuleLaneWidth + JunimoScreenGeometry.notchClearance(on: screen) * 2,
             height: NotchPanelMetrics.collapsedHeight(
                 screenTop: screen.frame.maxY,
                 visibleTop: screen.visibleFrame.maxY

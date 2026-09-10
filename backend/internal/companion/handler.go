@@ -11,7 +11,7 @@ import (
 	"junimo/backend/internal/codexusage"
 )
 
-const protocolVersion = 5
+const protocolVersion = 6
 
 type healthResponse struct {
 	Status          string `json:"status"`
@@ -45,10 +45,11 @@ func (state *state) snapshot() stateResponse {
 	}
 }
 
-// newHandler 创建协议 v5 的只读 HTTP 接口。
+// newHandler 创建协议 v6 的只读 HTTP 接口。
 func newHandler(
 	usageProvider func() codexusage.Snapshot,
 	activityProvider func() codexactivity.Snapshot,
+	stores ...*shortcutStore,
 ) http.Handler {
 	if usageProvider == nil {
 		usageProvider = func() codexusage.Snapshot {
@@ -63,6 +64,11 @@ func newHandler(
 	current := &state{usageSnapshot: usageProvider, activitySnapshot: activityProvider}
 	mux := http.NewServeMux()
 	instanceID := os.Getenv("JUNIMO_INSTANCE_ID")
+	store := newShortcutStore()
+	if len(stores) > 0 {
+		store = stores[0]
+	}
+	registerShortcuts(mux, store, instanceID)
 	mux.HandleFunc("GET /health", func(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, healthResponse{Status: "ok", ProtocolVersion: protocolVersion, InstanceID: instanceID})
 	})

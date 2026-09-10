@@ -6,6 +6,7 @@ import SwiftUI
 struct JunimoSurfaceView: View {
     @ObservedObject var state: ShellState
     @ObservedObject var quickLaunchStore: QuickLaunchConfigurationStore
+    var notchClearance: CGFloat = JunimoPanelLayout.collapsedNotchClearance
     private let launcher: QuickLauncher
 
     init(
@@ -156,10 +157,8 @@ struct JunimoSurfaceView: View {
             codexUsageCapsule
                 .frame(width: JunimoPanelLayout.collapsedCapsuleLaneWidth, alignment: .trailing)
             notchHoverTrigger
-            codexLauncherCapsule
-                .frame(width: JunimoPanelLayout.collapsedCapsuleLaneWidth, alignment: .leading)
         }
-        .frame(width: JunimoPanelLayout.collapsedWidth)
+        .frame(width: JunimoPanelLayout.collapsedCapsuleLaneWidth + notchClearance * 2)
         .frame(maxHeight: .infinity)
         .background(Color.black.opacity(0.001))
         .contentShape(Rectangle())
@@ -167,7 +166,7 @@ struct JunimoSurfaceView: View {
 
     private var notchHoverTrigger: some View {
         Color.black.opacity(0.001)
-            .frame(width: JunimoPanelLayout.collapsedNotchClearance * 2)
+            .frame(width: notchClearance * 2)
             .contentShape(Rectangle())
             .onHover { inside in
                 if inside {
@@ -175,21 +174,6 @@ struct JunimoSurfaceView: View {
                 }
             }
             .accessibilityIdentifier("notch.expandTrigger")
-    }
-
-    private var codexLauncherCapsule: some View {
-        Button {
-            guard let command = QuickLaunchCatalog.commands.first(where: { $0.id == "codex" }) else { return }
-            _ = launcher.open(command)
-        } label: {
-            JunimoAppIcon()
-                .frame(width: 28, height: 28)
-                .frame(width: 42, height: 33)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("打开 Codex")
-        .accessibilityIdentifier("shortcut.codex.collapsed")
     }
 
     private var codexUsageCapsule: some View {

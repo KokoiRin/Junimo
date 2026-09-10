@@ -10,8 +10,8 @@ import (
 	"junimo/backend/internal/codexusage"
 )
 
-// 轻量后端收到健康检查时必须声明协议 v5，让旧 Swift 客户端拒绝不兼容快照。
-func TestHealthReportsProtocolFive(t *testing.T) {
+// 轻量后端收到健康检查时必须声明协议 v6，让旧 Swift 客户端拒绝不兼容快照。
+func TestHealthReportsProtocolSix(t *testing.T) {
 	handler := newHandler(
 		func() codexusage.Snapshot { return codexusage.Snapshot{Status: codexusage.StatusLoading} },
 		func() codexactivity.Snapshot { return codexactivity.Snapshot{Status: codexactivity.StatusLoading} },
@@ -24,7 +24,7 @@ func TestHealthReportsProtocolFive(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &health); err != nil {
 		t.Fatal(err)
 	}
-	if response.Code != http.StatusOK || health.ProtocolVersion != 5 {
+	if response.Code != http.StatusOK || health.ProtocolVersion != 6 {
 		t.Fatalf("status = %d health = %#v", response.Code, health)
 	}
 }
@@ -51,7 +51,7 @@ func TestResponsesIdentifyTheirInstance(t *testing.T) {
 	}
 }
 
-// v5 状态读取只公开 revision、Codex 用量和 activity，避免未使用字段扩大跨进程契约。
+// v6 状态读取只公开 revision、Codex 用量和 activity，避免未使用字段扩大跨进程契约。
 func TestStateContainsOnlyUsageAndActivity(t *testing.T) {
 	handler := newHandler(
 		func() codexusage.Snapshot {
