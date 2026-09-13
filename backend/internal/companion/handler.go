@@ -45,7 +45,7 @@ func (state *state) snapshot() stateResponse {
 	}
 }
 
-// newHandler 创建协议 v6 的只读 HTTP 接口。
+// newHandler 提供协议 v6 的状态快照、收藏管理和应用切换目标接口。
 func newHandler(
 	usageProvider func() codexusage.Snapshot,
 	activityProvider func() codexactivity.Snapshot,
@@ -69,6 +69,7 @@ func newHandler(
 		store = stores[0]
 	}
 	registerShortcuts(mux, store, instanceID)
+	registerShortcutSelection(mux, store, instanceID)
 	mux.HandleFunc("GET /health", func(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, healthResponse{Status: "ok", ProtocolVersion: protocolVersion, InstanceID: instanceID})
 	})

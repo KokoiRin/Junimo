@@ -20,6 +20,15 @@ final class AppBarController: NSObject {
     private let state: ShellState
     private let panel: AppBarPanel
     private let workspace = MacQuickLaunchWorkspace()
+    private let backend: AppShortcutsBackend
+    private let swipeMonitor = AppBarSwipeMonitor()
+    private let enableGlobalGestures: Bool
+    private var swipeTask: Task<Void, Never>?
+    private var swipeEnabled = UserDefaults.standard.object(forKey: "appBar.commandSwipe") as? Bool ?? true
+    var swipeMenuTitle: String {
+        if !swipeEnabled { return "启用 Command＋双指滑动切换" }
+        return swipeMonitor.isRunning ? "关闭 Command＋双指滑动切换" : "恢复 Command＋双指滑动切换…"
+    }
     private var manager: NSWindow?
     private var observations: Set<AnyCancellable> = []
     private var workspaceObservers: [NSObjectProtocol] = []
@@ -32,12 +41,21 @@ final class AppBarController: NSObject {
     private var errorTask: Task<Void, Never>?
     private var activationTasks: [UUID: Task<Void, Never>] = [:]
 
-    init(state: ShellState, backend: AppShortcutsBackend, presentation: AppBarPresentation? = nil) {
+    init(state: ShellState, backend: AppShortcutsBackend, presentation: AppBarPresentation? = nil,
+         enableGlobalGestures: Bool = true) {
         self.state = state
+        self.backend = backend
+        self.enableGlobalGestures = enableGlobalGestures
         self.presentation = presentation ?? AppBarPresentation()
         store = AppShortcutsStore(backend: backend)
         panel = AppBarPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
+        swipeMonitor.canSwitch = { [weak self] in
+            guard let self else { return false }
+            return self.panel.isVisible && self.store.isLoaded && self.visibleItems.count > 1
+                && self.manager?.isVisible != true
+        }
+        swipeMonitor.switchDirection = { [weak self] in self?.switchApplication(direction: $0) }
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false
@@ -90,6 +108,9 @@ final class AppBarController: NSObject {
 
     func stop() {
         stopped = true
+        swipeMonitor.stop()
+        swipeTask?.cancel()
+        swipeTask = nil
         geometryTimer?.invalidate()
         geometryTimer = nil
         store.stop()
@@ -105,6 +126,53 @@ final class AppBarController: NSObject {
         errorPopover?.close()
         manager?.orderOut(nil)
         panel.orderOut(nil)
+    }
+
+    func toggleCommandSwipe() {
+        if swipeEnabled && swipeMonitor.isRunning {
+            swipeEnabled = false
+            swipeMonitor.stop()
+            swipeTask?.cancel()
+        } else {
+            swipeEnabled = true
+            swipeMonitor.start(prompt: true)
+            if swipeMonitor.status == .needsPermission,
+               let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                if !NSWorkspace.shared.open(url) {
+                    showError("无法打开系统设置，请手动进入隐私与安全性 → 辅助功能。")
+                }
+            }
+        }
+        UserDefaults.standard.set(swipeEnabled, forKey: "appBar.commandSwipe")
+    }
+
+    private var visibleItems: [AppShortcut] {
+        let capacity = AppBarCapacity(count: store.items.count, placement: presentation.placement,
+                                      availableWidth: presentation.availableWidth)
+        return Array(store.items.prefix(capacity.visibleCount))
+    }
+
+    private func switchApplication(direction: Int) {
+        guard swipeTask == nil, activationTasks.isEmpty else { return }
+        let items = visibleItems
+        let revision = store.revision
+        let activeID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
+        swipeTask = Task { [weak self] in
+            guard let self else { return }
+            defer { swipeTask = nil }
+            do {
+                let target = try await backend.selectAppShortcut(AppShortcutSelectionRequest(
+                    revision: revision, visibleCount: items.count, activeId: activeID, direction: direction))
+                // 等待后端期间若用户换了前台应用、收藏或布局，不执行过时的打开动作。
+                guard !Task.isCancelled, panel.isVisible, store.revision == revision, visibleItems == items,
+                      (NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "") == activeID,
+                      let target, items.contains(target) else { return }
+                try await workspace.activateApplication(bundleIdentifier: target.bundleId)
+                presentation.refreshApplications(store.items)
+            } catch {
+                if !Task.isCancelled { showError("切换失败：\(error.localizedDescription)") }
+            }
+        }
     }
 
     func showManager() {
@@ -177,6 +245,7 @@ final class AppBarController: NSObject {
     }
 
     private func open(_ item: AppShortcut) {
+        swipeTask?.cancel()
         errorPopover?.close()
         state.pointerExited()
         let id = UUID()
@@ -207,6 +276,7 @@ final class AppBarController: NSObject {
 
     private func updateLayout() {
         guard !stopped else { return }
+        if enableGlobalGestures && swipeEnabled { swipeMonitor.start() }
         guard presentation.enabled, !state.isExpanded, !store.items.isEmpty,
               let screen = JunimoScreenGeometry.targetScreen() else {
             errorPopover?.close()

@@ -73,6 +73,26 @@ public final class GoBackendClient: ShellBackendClient, AppShortcutsBackend {
         try await requestShortcuts(items: items, revision: revision)
     }
 
+    public func selectAppShortcut(_ selection: AppShortcutSelectionRequest) async throws -> AppShortcut? {
+        guard process?.isRunning == true else { throw BackendError.backendExited }
+        var request = URLRequest(url: baseURL.appendingPathComponent("app-shortcuts/selection"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 2
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(instanceID, forHTTPHeaderField: "X-Junimo-Instance-ID")
+        request.httpBody = try JSONEncoder().encode(selection)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode == 409 {
+            guard let instanceID, http.value(forHTTPHeaderField: "X-Junimo-Instance-ID") == instanceID else {
+                throw BackendError.instanceMismatch
+            }
+            throw AppShortcutError.conflict
+        }
+        try validate(response)
+        struct Selection: Decodable { let item: AppShortcut? }
+        return try JSONDecoder().decode(Selection.self, from: data).item
+    }
+
     private func requestShortcuts(items: [AppShortcut]?, revision: UInt64 = 0) async throws -> AppShortcutList {
         guard process?.isRunning == true else { throw BackendError.backendExited }
         var request = URLRequest(url: baseURL.appendingPathComponent("app-shortcuts"))

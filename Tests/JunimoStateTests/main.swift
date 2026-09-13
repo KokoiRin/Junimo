@@ -209,6 +209,9 @@ func testQuickLaunchConfigurationHotReloadKeepsLastGoodCatalog() async {
 }
 
 final class FakeShortcutsBackend: AppShortcutsBackend {
+    func selectAppShortcut(_ request: AppShortcutSelectionRequest) async throws -> AppShortcut? {
+        throw AppShortcutError.message("收藏保存测试不执行应用切换")
+    }
     var value = AppShortcutList(items: [AppShortcut(bundleId: "com.test.one", name: "一")])
     var failSave = false
     var holdNextRead = false

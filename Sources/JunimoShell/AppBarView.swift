@@ -85,15 +85,23 @@ struct AppBarIcon: View {
     let item: AppShortcut
     @ObservedObject var presentation: AppBarPresentation
     var body: some View {
+        let isActive = presentation.activeBundleID == item.bundleId
         Group {
             if let image = presentation.icons[item.bundleId] {
                 Image(nsImage: image).resizable().interpolation(.high)
             } else { Image(systemName: "app.dashed").resizable().scaledToFit() }
         }
-        .frame(width: presentation.placement.iconSize, height: presentation.placement.iconSize)
+        .frame(width: presentation.placement.iconSize - 4, height: presentation.placement.iconSize - 4)
         .frame(width: presentation.placement.cellSize, height: presentation.placement.cellSize)
-        .background(presentation.activeBundleID == item.bundleId ? Color.white.opacity(0.16) : .clear,
-                    in: RoundedRectangle(cornerRadius: 7))
+        .background(isActive ? Color.green.opacity(0.16) : .clear,
+                    in: RoundedRectangle(cornerRadius: 7).inset(by: 1.5))
+        .overlay {
+            if isActive {
+                RoundedRectangle(cornerRadius: 7).inset(by: 1.5)
+                    .stroke(Color.green.opacity(0.85), lineWidth: 1.25)
+            }
+        }
+        .accessibilityValue(isActive ? "当前应用" : "未选中")
         .contentShape(Rectangle())
     }
 }

@@ -52,6 +52,23 @@ Task {
         let result = try await backend.saveAppShortcuts(saved, revision: imported.revision)
         try expect(result.items == saved, "saved list should match confirmed backend response")
 
+        // 真实 Swift-Go 请求应只在可见收藏内循环，空栏返回空目标，过时列表返回可识别的冲突。
+        let next = try await backend.selectAppShortcut(AppShortcutSelectionRequest(
+            revision: result.revision, visibleCount: 2, activeId: "com.apple.finder", direction: 1))
+        try expect(next == saved[1], "selection should decode the adjacent visible app")
+        let wrapped = try await backend.selectAppShortcut(AppShortcutSelectionRequest(
+            revision: result.revision, visibleCount: 1, activeId: "com.apple.finder", direction: 1))
+        try expect(wrapped == saved[0], "selection must exclude overflow apps")
+        let empty = try await backend.selectAppShortcut(AppShortcutSelectionRequest(
+            revision: result.revision, visibleCount: 0, activeId: "", direction: -1))
+        try expect(empty == nil, "empty bar should not select an app")
+        var rejectedStaleSelection = false
+        do {
+            _ = try await backend.selectAppShortcut(AppShortcutSelectionRequest(
+                revision: imported.revision, visibleCount: 1, activeId: "", direction: 1))
+        } catch AppShortcutError.conflict { rejectedStaleSelection = true }
+        try expect(rejectedStaleSelection, "stale selection should return a typed conflict")
+
         // 真实 HTTP 客户端提交旧版本时必须收到冲突，刚保存的收藏和顺序不能被空列表覆盖。
         var rejectedStaleSave = false
         do { _ = try await backend.saveAppShortcuts([], revision: imported.revision) }

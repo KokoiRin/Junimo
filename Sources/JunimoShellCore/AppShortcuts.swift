@@ -26,6 +26,18 @@ public enum AppShortcutError: LocalizedError {
 public protocol AppShortcutsBackend: AnyObject {
     func loadAppShortcuts() async throws -> AppShortcutList
     func saveAppShortcuts(_ items: [AppShortcut], revision: UInt64) async throws -> AppShortcutList
+    func selectAppShortcut(_ request: AppShortcutSelectionRequest) async throws -> AppShortcut?
+}
+
+public struct AppShortcutSelectionRequest: Codable {
+    public let revision: UInt64
+    public let visibleCount: Int
+    public let activeId: String
+    public let direction: Int
+    public init(revision: UInt64, visibleCount: Int, activeId: String, direction: Int) {
+        self.revision = revision; self.visibleCount = visibleCount
+        self.activeId = activeId; self.direction = direction
+    }
 }
 
 // 列表只在后端确认后发布；界面不自行推断保存成功或覆盖失败前的收藏。

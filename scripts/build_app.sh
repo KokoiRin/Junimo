@@ -10,6 +10,16 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 BUILD_DIR="$ROOT_DIR/.build/app-build"
 DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 SWIFT_TARGET="${SWIFT_TARGET:-arm64-apple-macosx${DEPLOYMENT_TARGET}}"
+SIGNING_IDENTITY="${JUNIMO_SIGNING_IDENTITY:-}"
+LOCAL_IDENTITY="$HOME/Library/Application Support/Junimo/signing/identity"
+if [[ -z "$SIGNING_IDENTITY" && -f "$LOCAL_IDENTITY" ]]; then
+  SIGNING_IDENTITY="$(cat "$LOCAL_IDENTITY")"
+  [[ "$SIGNING_IDENTITY" =~ ^[[:xdigit:]]{40}$ ]] || { echo "Invalid Junimo local signing identity" >&2; exit 1; }
+fi
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="-"
+  echo "warning: ad-hoc signing changes the app identity on rebuild; run scripts/setup_local_signing.sh once to preserve accessibility authorization." >&2
+fi
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$FRAMEWORKS_DIR" "$RESOURCES_DIR" "$BUILD_DIR"
@@ -91,13 +101,9 @@ find "$APP_DIR" -name '._*' -delete
 xattr -cr "$APP_DIR" 2>/dev/null || true
 xattr -d com.apple.FinderInfo "$APP_DIR" 2>/dev/null || true
 xattr -d 'com.apple.fileprovider.fpfs#P' "$APP_DIR" 2>/dev/null || true
-if codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1; then
-  xattr -d com.apple.FinderInfo "$APP_DIR" 2>/dev/null || true
-  xattr -d 'com.apple.fileprovider.fpfs#P' "$APP_DIR" 2>/dev/null || true
-  codesign --verify --deep --strict --verbose=2 "$APP_DIR" >/dev/null
-else
-  rm -rf "$CONTENTS_DIR/_CodeSignature"
-  echo "warning: skipped ad-hoc app signing because local macOS xattrs could not be cleared" >&2
-fi
+codesign --force --deep --timestamp=none --sign "$SIGNING_IDENTITY" "$APP_DIR" >&2
+xattr -d com.apple.FinderInfo "$APP_DIR" 2>/dev/null || true
+xattr -d 'com.apple.fileprovider.fpfs#P' "$APP_DIR" 2>/dev/null || true
+codesign --verify --deep --strict --verbose=2 "$APP_DIR" >/dev/null
 
 echo "$APP_DIR"

@@ -84,6 +84,7 @@ swiftc \
   "$ROOT_DIR"/Sources/JunimoShell/JunimoSurfaceView.swift \
   "$ROOT_DIR"/Sources/JunimoShell/AppBarView.swift \
   "$ROOT_DIR"/Sources/JunimoShell/AppBarController.swift \
+  "$ROOT_DIR"/Sources/JunimoShell/AppBarSwipeMonitor.swift \
   "$ROOT_DIR"/Tests/JunimoVisualTests/main.swift \
   -o "$BUILD_DIR/JunimoVisualTests" \
   -framework AppKit \

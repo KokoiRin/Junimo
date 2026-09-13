@@ -145,6 +145,9 @@ func alpha(_ bitmap: NSBitmapImageRep, at point: CGPoint, size: CGSize) -> CGFlo
 }
 
 final class VisualShortcutsBackend: AppShortcutsBackend {
+    func selectAppShortcut(_ request: AppShortcutSelectionRequest) async throws -> AppShortcut? {
+        throw AppShortcutError.message("视觉测试不执行应用切换")
+    }
     var items: [AppShortcut] = [
         AppShortcut(bundleId: "com.openai.codex", name: "Codex — 一个很长的应用名称也不应该撑宽图标栏"),
         AppShortcut(bundleId: "com.apple.finder", name: "Finder"),
@@ -221,7 +224,7 @@ func testAppBarWindowVisibility() async {
     presentation.setPlacement(.below)
     let backend = VisualShortcutsBackend()
     let state = ShellState()
-    let controller = AppBarController(state: state, backend: backend, presentation: presentation)
+    let controller = AppBarController(state: state, backend: backend, presentation: presentation, enableGlobalGestures: false)
     defer { controller.stop(); defaults.removePersistentDomain(forName: suite) }
     func waitFor(_ expected: Bool) async {
         for _ in 0..<100 {
@@ -284,7 +287,104 @@ func testApplicationReopenIncludesFrontmostApplication() async {
     guard failed else { fail("launch errors must reach the caller") }
 }
 
+func swipeEvent(x: Int32, y: Int32 = 0, phase: Int64 = 2, momentum: Int64 = 0,
+                command: Bool = true, precise: Bool = true) -> NSEvent {
+    let raw = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+                      wheel1: y, wheel2: x, wheel3: 0)!
+    raw.flags = command ? .maskCommand : []
+    raw.setIntegerValueField(.scrollWheelEventIsContinuous, value: precise ? 1 : 0)
+    raw.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+    raw.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)
+    return NSEvent(cgEvent: raw)!
+}
+
+// Command 横滑累计越过阈值后只触发一次，松开 Command 后的惯性仍被消费，下一次反向手势可以再次切换。
+func testCommandSwipeConsumesOneGesture() {
+    var recognizer = AppBarSwipeRecognizer()
+    let first = recognizer.handle(swipeEvent(x: -10, phase: 1), enabled: true)
+    guard first.consume && first.direction == nil else { fail("small horizontal motion should be captured without switching") }
+    let next = recognizer.handle(swipeEvent(x: -20), enabled: true)
+    guard next.consume && next.direction == 1 else { fail("horizontal threshold should select the next icon") }
+    guard recognizer.handle(swipeEvent(x: -80), enabled: true).direction == nil else { fail("one gesture must switch only once") }
+    _ = recognizer.handle(swipeEvent(x: 0, phase: 4), enabled: true)
+    for phase: Int64 in [1, 2, 3] {
+        let inertia = recognizer.handle(swipeEvent(x: -80, phase: 0, momentum: phase, command: false), enabled: true)
+        guard inertia.consume && inertia.direction == nil else { fail("momentum must not leak or switch again") }
+    }
+    guard recognizer.handle(swipeEvent(x: 30, phase: 1), enabled: true).direction == -1 else {
+        fail("a new reverse gesture should select the previous icon")
+    }
+}
+
+// 普通滚动、Command 竖滑、鼠标滚轮和不可切换的面板都不拦截，滚动中途按 Command 或取消手势也不能切应用。
+func testCommandSwipeLeavesOtherInputAlone() {
+    for event in [swipeEvent(x: -40, phase: 1, command: false), swipeEvent(x: 0, y: -40, phase: 1),
+                  swipeEvent(x: -40, phase: 0, precise: false)] {
+        var recognizer = AppBarSwipeRecognizer()
+        let result = recognizer.handle(event, enabled: true)
+        guard !result.consume && result.direction == nil else { fail("unrelated scrolling must pass through") }
+    }
+    var disabled = AppBarSwipeRecognizer()
+    guard !disabled.handle(swipeEvent(x: -40, phase: 1), enabled: false).consume else { fail("disabled bar must not intercept") }
+    var lateCommand = AppBarSwipeRecognizer()
+    _ = lateCommand.handle(swipeEvent(x: -10, phase: 1, command: false), enabled: true)
+    guard !lateCommand.handle(swipeEvent(x: -40), enabled: true).consume else { fail("Command pressed during scrolling must not capture it") }
+    var cancelled = AppBarSwipeRecognizer()
+    _ = cancelled.handle(swipeEvent(x: -10, phase: 1), enabled: true)
+    guard cancelled.handle(swipeEvent(x: -50, phase: 8), enabled: true).direction == nil else { fail("cancelled gesture must not switch") }
+}
+
+@MainActor
+final class FakeSwipeAccess: AppBarSwipeAccess {
+    var trusted = false
+    var isRunning = false
+    var canInstall = true
+    var prompted = false
+    var generation = 0
+    func isTrusted(prompt: Bool) -> Bool { prompted = prompted || prompt; return trusted }
+    func install(handler: @escaping (NSEvent) -> Bool) -> Bool {
+        generation += 1
+        isRunning = canInstall
+        return isRunning
+    }
+    func remove() { isRunning = false }
+}
+
+// 未授权时记录缺少权限且不弹窗，用户授权后自动连接；失效的监听可自动重建，撤销授权后停止监听，只有主动授权才触发系统提示。
+@MainActor
+func testSwipePermissionRecovery() {
+    let access = FakeSwipeAccess()
+    let monitor = AppBarSwipeMonitor(access: access)
+    monitor.start()
+    guard monitor.status == .needsPermission && access.generation == 0 && !access.prompted else { fail("permission polling must not prompt or install") }
+    monitor.start(prompt: true)
+    guard access.prompted && monitor.status == .needsPermission else { fail("requesting permission must not assume a grant") }
+    access.trusted = true
+    monitor.start()
+    guard monitor.isRunning && access.generation == 1 else { fail("grant should automatically connect") }
+    monitor.start()
+    guard access.generation == 1 else { fail("healthy connection should be reused") }
+    access.isRunning = false
+    monitor.start()
+    guard monitor.isRunning && access.generation == 2 else { fail("disabled tap must be replaced") }
+    access.trusted = false
+    monitor.start()
+    guard monitor.status == .needsPermission && !access.isRunning else { fail("revoked grant must stop interception") }
+    access.trusted = true
+    access.canInstall = false
+    monitor.start()
+    guard monitor.status == .unavailable else { fail("tap failure must not be mistaken for missing permission") }
+    access.canInstall = true
+    monitor.start()
+    guard monitor.isRunning else { fail("transient failure should recover without user action") }
+    monitor.stop()
+    guard monitor.status == .stopped && !access.isRunning else { fail("stop must release the listener") }
+}
+
 Task { @MainActor in
+    testSwipePermissionRecovery()
+    testCommandSwipeConsumesOneGesture()
+    testCommandSwipeLeavesOtherInputAlone()
     await testApplicationReopenIncludesFrontmostApplication()
     await testAppBarLayoutsAndActiveHighlight()
     await testAppBarWindowVisibility()
