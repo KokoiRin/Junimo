@@ -74,7 +74,7 @@ final class AppBarController: NSObject {
                 self.updateLayout()
             }
         }.store(in: &observations)
-        self.presentation.$placement.combineLatest(self.presentation.$enabled, state.$isExpanded)
+        self.presentation.$enabled.combineLatest(state.$isExpanded)
             .sink { [weak self] _ in Task { @MainActor [weak self] in self?.updateLayout() } }
             .store(in: &observations)
         let center = NSWorkspace.shared.notificationCenter
@@ -147,7 +147,7 @@ final class AppBarController: NSObject {
     }
 
     private var visibleItems: [AppShortcut] {
-        let capacity = AppBarCapacity(count: store.items.count, placement: presentation.placement,
+        let capacity = AppBarCapacity(count: store.items.count,
                                       availableWidth: presentation.availableWidth)
         return Array(store.items.prefix(capacity.visibleCount))
     }
@@ -283,29 +283,18 @@ final class AppBarController: NSObject {
             panel.orderOut(nil)
             return
         }
-        let placement = presentation.placement
-        let originX: CGFloat
-        let originY: CGFloat
-        let available: CGFloat
-        if placement == .right {
-            // 主面板可能保留比物理刘海更宽的净空，应用栏必须避开整个悬停窗口。
-            originX = max(JunimoScreenGeometry.notchRight(on: screen) + 6,
+        // 主面板可能保留比物理刘海更宽的净空，应用栏必须避开整个悬停窗口。
+        let originX = max(JunimoScreenGeometry.notchRight(on: screen) + 6,
                           screen.frame.midX + JunimoScreenGeometry.notchClearance(on: screen) + 4)
-            // 系统不公开“菜单栏空闲区域”，保守预留右侧状态区，并进一步避开可读到的状态窗口。
-            let boundary = JunimoScreenGeometry.statusBoundary(on: screen, after: originX)
-            available = min(158, max(0, boundary - originX - 8))
-            let height = max(placement.cellSize, screen.safeAreaInsets.top)
-            originY = screen.frame.maxY - height + (height - placement.cellSize) / 2
-        } else {
-            available = min(260, screen.frame.width - 24)
-            originX = screen.frame.midX
-            originY = screen.frame.maxY - max(28, screen.safeAreaInsets.top) - placement.cellSize - 4
-        }
+        // 系统不公开“菜单栏空闲区域”，保守预留右侧状态区，并进一步避开可读到的状态窗口。
+        let boundary = JunimoScreenGeometry.statusBoundary(on: screen, after: originX)
+        let available = min(AppBarLayout.maximumWidth, max(0, boundary - originX - 8))
+        let height = max(AppBarLayout.cellSize, screen.safeAreaInsets.top)
+        let originY = screen.frame.maxY - height + (height - AppBarLayout.cellSize) / 2
         if presentation.availableWidth != available { presentation.availableWidth = available }
-        let capacity = AppBarCapacity(count: store.items.count, placement: placement, availableWidth: available)
+        let capacity = AppBarCapacity(count: store.items.count, availableWidth: available)
         guard capacity.width > 0 else { panel.orderOut(nil); return }
-        let x = placement == .right ? originX : originX - capacity.width / 2
-        let frame = NSRect(x: x, y: originY, width: capacity.width, height: placement.cellSize)
+        let frame = NSRect(x: originX, y: originY, width: capacity.width, height: AppBarLayout.cellSize)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
         if !panel.isVisible { panel.orderFrontRegardless() }
         updateMousePassthrough()

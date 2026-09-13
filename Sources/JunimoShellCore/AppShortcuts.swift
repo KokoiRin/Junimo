@@ -106,12 +106,11 @@ public final class AppShortcutsStore: ObservableObject {
     }
 }
 
-public enum AppBarPlacement: String, CaseIterable {
-    case right, below
-    public var title: String { self == .right ? "刘海右侧" : "刘海下方" }
-    public var cellSize: CGFloat { self == .right ? 30 : 36 }
-    public var iconSize: CGFloat { cellSize - 4 }
-    public var limit: Int { self == .right ? 4 : 6 }
+public enum AppBarLayout {
+    public static let cellSize: CGFloat = 30
+    public static let iconSize: CGFloat = 22
+    public static let limit = 4
+    public static let maximumWidth: CGFloat = 158
 }
 
 // 几何策略只计算可显示槽位；收藏顺序和数量校验由后端负责。
@@ -119,11 +118,11 @@ public struct AppBarCapacity: Equatable {
     public let visibleCount: Int
     public let hasOverflow: Bool
     public let width: CGFloat
-    public init(count: Int, placement: AppBarPlacement, availableWidth: CGFloat) {
-        let slots = max(0, Int((availableWidth - 8) / placement.cellSize))
-        let capacity = min(placement.limit, slots)
+    public init(count: Int, availableWidth: CGFloat) {
+        let slots = max(0, Int((availableWidth - 8) / AppBarLayout.cellSize))
+        let capacity = min(AppBarLayout.limit, slots)
         hasOverflow = count > capacity && slots > 0
-        visibleCount = hasOverflow ? min(placement.limit, max(0, slots - 1), max(0, count - 1)) : min(count, capacity)
-        width = CGFloat(visibleCount + (hasOverflow ? 1 : 0)) * placement.cellSize + (slots > 0 && count > 0 ? 8 : 0)
+        visibleCount = hasOverflow ? min(AppBarLayout.limit, max(0, slots - 1), max(0, count - 1)) : min(count, capacity)
+        width = CGFloat(visibleCount + (hasOverflow ? 1 : 0)) * AppBarLayout.cellSize + (slots > 0 && count > 0 ? 8 : 0)
     }
 }

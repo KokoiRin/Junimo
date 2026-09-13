@@ -168,9 +168,9 @@ final class VisualShortcutsBackend: AppShortcutsBackend {
     }
 }
 
-// 同一组八个收藏在两种布局中都应保持圆角外透明和足够可见图标，前台高亮必须改变图像且长名称不得撑宽胶囊。
+// 八个收藏在右侧布局中应保持圆角外透明和足够可见图标，前台高亮必须改变图像且长名称不得撑宽胶囊，旧的下方位置设置应被清除。
 @MainActor
-func testAppBarLayoutsAndActiveHighlight() async {
+func testAppBarLayoutAndActiveHighlight() async {
     let store = AppShortcutsStore(backend: VisualShortcutsBackend())
     store.start()
     for _ in 0..<100 {
@@ -181,39 +181,36 @@ func testAppBarLayoutsAndActiveHighlight() async {
     let suite = "junimo-visual-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
     defer { defaults.removePersistentDomain(forName: suite); store.stop() }
+    defaults.set("below", forKey: "appBar.placement")
     let presentation = AppBarPresentation(defaults: defaults)
+    guard defaults.object(forKey: "appBar.placement") == nil else { fail("obsolete placement preference must be removed") }
     presentation.refreshApplications(store.items)
     let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/app-bar-previews")
     try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-    for placement in AppBarPlacement.allCases {
-        presentation.placement = placement
-        presentation.availableWidth = placement == .right ? 158 : 260
-        presentation.activeBundleID = nil
-        let capacity = AppBarCapacity(count: store.items.count, placement: placement, availableWidth: presentation.availableWidth)
-        let size = CGSize(width: capacity.width, height: placement.cellSize)
-        let view = AppBarView(store: store, presentation: presentation, open: { _ in fail("render must not open apps") }, manage: {})
-        let idle = render(view.frame(width: size.width, height: size.height), size: size)
-        presentation.activeBundleID = store.items.first?.bundleId
-        let active = render(view.frame(width: size.width, height: size.height), size: size)
-        guard alpha(active, at: CGPoint(x: 0, y: 0), size: size) < 0.15 else { fail("capsule corner must be transparent") }
-        guard alpha(active, at: CGPoint(x: size.width / 2, y: size.height / 2), size: size) > 0.9 else { fail("app bar center must be visible") }
-        guard active.tiffRepresentation != idle.tiffRepresentation else { fail("frontmost app must have a visible highlight") }
-        if let png = active.representation(using: .png, properties: [:]) {
-            try? png.write(to: output.appendingPathComponent("\(placement.rawValue).png"))
-        }
+    presentation.activeBundleID = nil
+    let capacity = AppBarCapacity(count: store.items.count, availableWidth: presentation.availableWidth)
+    let size = CGSize(width: capacity.width, height: AppBarLayout.cellSize)
+    let view = AppBarView(store: store, presentation: presentation, open: { _ in fail("render must not open apps") }, manage: {})
+    let idle = render(view.frame(width: size.width, height: size.height), size: size)
+    presentation.activeBundleID = store.items.first?.bundleId
+    let active = render(view.frame(width: size.width, height: size.height), size: size)
+    guard alpha(active, at: CGPoint(x: 0, y: 0), size: size) < 0.15 else { fail("capsule corner must be transparent") }
+    guard alpha(active, at: CGPoint(x: size.width / 2, y: size.height / 2), size: size) > 0.9 else { fail("app bar center must be visible") }
+    guard active.tiffRepresentation != idle.tiffRepresentation else { fail("frontmost app must have a visible highlight") }
+    if let png = active.representation(using: .png, properties: [:]) {
+        try? png.write(to: output.appendingPathComponent("right.png"))
     }
     let manager = render(AppShortcutManagerView(store: store, presentation: presentation, add: {}), size: CGSize(width: 460, height: 370))
     if let png = manager.representation(using: .png, properties: [:]) {
         try? png.write(to: output.appendingPathComponent("manager.png"))
     }
-    // 用户切换位置并关闭应用栏后，新建外壳偏好对象必须恢复同样的选择。
-    presentation.setPlacement(.below)
+    // 用户关闭应用栏后，新建外壳偏好对象必须恢复关闭状态。
     presentation.toggle()
     let restored = AppBarPresentation(defaults: defaults)
-    guard restored.placement == .below, !restored.enabled else { fail("shell preferences must survive recreation") }
+    guard !restored.enabled else { fail("shell preferences must survive recreation") }
 }
 
-// 真实独立面板在收藏加载后出现，展开主面板和关闭开关时隐藏，折叠、换位置后恢复，清空收藏后再次隐藏。
+// 真实独立面板在收藏加载后出现，展开主面板和关闭开关时隐藏，折叠、重新开启后恢复，清空收藏后再次隐藏。
 @MainActor
 func testAppBarWindowVisibility() async {
     _ = NSApplication.shared
@@ -221,7 +218,6 @@ func testAppBarWindowVisibility() async {
     let suite = "junimo-window-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
     let presentation = AppBarPresentation(defaults: defaults)
-    presentation.setPlacement(.below)
     let backend = VisualShortcutsBackend()
     let state = ShellState()
     let controller = AppBarController(state: state, backend: backend, presentation: presentation, enableGlobalGestures: false)
@@ -240,8 +236,6 @@ func testAppBarWindowVisibility() async {
     await waitFor(true)
     presentation.toggle()
     await waitFor(false)
-    presentation.setPlacement(.right)
-    presentation.setPlacement(.below)
     presentation.toggle()
     await waitFor(true)
     await controller.store.save([], basedOn: controller.store.revision)
@@ -386,7 +380,7 @@ Task { @MainActor in
     testCommandSwipeConsumesOneGesture()
     testCommandSwipeLeavesOtherInputAlone()
     await testApplicationReopenIncludesFrontmostApplication()
-    await testAppBarLayoutsAndActiveHighlight()
+    await testAppBarLayoutAndActiveHighlight()
     await testAppBarWindowVisibility()
     testExpandedPanelKeepsRoundedCornersTransparent()
     testCompanionRendersVisibleAccentContent()

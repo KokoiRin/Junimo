@@ -5,21 +5,16 @@ import SwiftUI
 
 @MainActor
 final class AppBarPresentation: ObservableObject {
-    @Published var placement: AppBarPlacement
     @Published var enabled: Bool
-    @Published var availableWidth: CGFloat = 158
+    @Published var availableWidth: CGFloat = AppBarLayout.maximumWidth
     @Published var activeBundleID: String?
     @Published var icons: [String: NSImage] = [:]
     @Published var error: String?
     private let defaults: UserDefaults
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        placement = AppBarPlacement(rawValue: defaults.string(forKey: "appBar.placement") ?? "right") ?? .right
+        defaults.removeObject(forKey: "appBar.placement")
         enabled = defaults.object(forKey: "appBar.enabled") as? Bool ?? true
-    }
-    func setPlacement(_ value: AppBarPlacement) {
-        defaults.set(value.rawValue, forKey: "appBar.placement")
-        placement = value
     }
     func toggle() { enabled.toggle(); defaults.set(enabled, forKey: "appBar.enabled") }
     func refreshApplications(_ items: [AppShortcut]) {
@@ -46,7 +41,7 @@ struct AppBarView: View {
     var showMore: ([AppShortcut]) -> Void = { _ in }
 
     var body: some View {
-        let layout = AppBarCapacity(count: store.items.count, placement: presentation.placement,
+        let layout = AppBarCapacity(count: store.items.count,
                                     availableWidth: presentation.availableWidth)
         HStack(spacing: 0) {
             ForEach(Array(store.items.prefix(layout.visibleCount))) { item in
@@ -62,7 +57,7 @@ struct AppBarView: View {
                 Button { showMore(Array(store.items.dropFirst(layout.visibleCount))) } label: {
                     Image(systemName: "ellipsis")
                         .foregroundStyle(.white.opacity(0.9))
-                        .frame(width: presentation.placement.cellSize, height: presentation.placement.cellSize)
+                        .frame(width: AppBarLayout.cellSize, height: AppBarLayout.cellSize)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -76,7 +71,7 @@ struct AppBarView: View {
         .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 1))
         .clipShape(Capsule())
         .contextMenu { Button("管理常用应用…", action: manage) }
-        .accessibilityIdentifier("appBar.\(presentation.placement.rawValue)")
+        .accessibilityIdentifier("appBar.right")
     }
 }
 
@@ -91,8 +86,8 @@ struct AppBarIcon: View {
                 Image(nsImage: image).resizable().interpolation(.high)
             } else { Image(systemName: "app.dashed").resizable().scaledToFit() }
         }
-        .frame(width: presentation.placement.iconSize - 4, height: presentation.placement.iconSize - 4)
-        .frame(width: presentation.placement.cellSize, height: presentation.placement.cellSize)
+        .frame(width: AppBarLayout.iconSize, height: AppBarLayout.iconSize)
+        .frame(width: AppBarLayout.cellSize, height: AppBarLayout.cellSize)
         .background(isActive ? Color.green.opacity(0.16) : .clear,
                     in: RoundedRectangle(cornerRadius: 7).inset(by: 1.5))
         .overlay {

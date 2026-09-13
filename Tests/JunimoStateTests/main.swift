@@ -251,16 +251,16 @@ func testAppShortcutsKeepConfirmedStateOnFailure() async {
     store.stop()
 }
 
-// 右侧只够四个槽位时应留一个更多入口，宽敞下方最多六个应用，极窄区域应只显示更多或完全隐藏。
+// 右侧只够四个槽位时应留一个更多入口，空间充足时最多展示四个应用，极窄区域应只显示更多或完全隐藏。
 func testAppBarCapacityKeepsOverflowReachable() {
-    let right = AppBarCapacity(count: 8, placement: .right, availableWidth: 128)
+    let right = AppBarCapacity(count: 8, availableWidth: 128)
     guard right.visibleCount == 3, right.hasOverflow, right.width == 128 else { fail("overflow must fit right lane") }
-    let below = AppBarCapacity(count: 8, placement: .below, availableWidth: 260)
-    guard below.visibleCount == 6, below.hasOverflow, below.width <= 260 else { fail("below lane capacity incorrect") }
-    let narrow = AppBarCapacity(count: 8, placement: .right, availableWidth: 38)
+    let full = AppBarCapacity(count: 8, availableWidth: 158)
+    guard full.visibleCount == 4, full.hasOverflow, full.width == 158 else { fail("full right lane capacity incorrect") }
+    let narrow = AppBarCapacity(count: 8, availableWidth: 38)
     guard narrow.visibleCount == 0, narrow.hasOverflow else { fail("narrow lane must retain more menu") }
-    let absent = AppBarCapacity(count: 8, placement: .right, availableWidth: 20)
-    let empty = AppBarCapacity(count: 0, placement: .right, availableWidth: 158)
+    let absent = AppBarCapacity(count: 8, availableWidth: 20)
+    let empty = AppBarCapacity(count: 0, availableWidth: 158)
     guard absent.width == 0, empty.width == 0 else { fail("empty or unavailable lane must disappear") }
 }
 

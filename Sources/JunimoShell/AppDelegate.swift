@@ -90,16 +90,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(NSMenuItem(title: "Edit Quick Launches…", action: #selector(editQuickLaunchesFromMenu), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "显示应用栏", action: #selector(toggleAppBar), keyEquivalent: ""))
-        let position = NSMenuItem(title: "应用栏位置", action: nil, keyEquivalent: "")
-        let positions = NSMenu()
-        for placement in AppBarPlacement.allCases {
-            let choice = NSMenuItem(title: placement.title, action: #selector(changeAppBarPlacement(_:)), keyEquivalent: "")
-            choice.representedObject = placement.rawValue
-            choice.target = self
-            positions.addItem(choice)
-        }
-        position.submenu = positions
-        menu.addItem(position)
         menu.addItem(NSMenuItem(title: "管理常用应用…", action: #selector(manageAppShortcuts), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Command＋双指滑动切换", action: #selector(toggleCommandSwipe), keyEquivalent: ""))
         menu.addItem(.separator())
@@ -113,17 +103,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleAppBar() { appBarController?.presentation.toggle() }
     @objc private func manageAppShortcuts() { appBarController?.showManager() }
     @objc private func toggleCommandSwipe() { appBarController?.toggleCommandSwipe() }
-    @objc private func changeAppBarPlacement(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let value = AppBarPlacement(rawValue: raw) else { return }
-        appBarController?.presentation.setPlacement(value)
-    }
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard let presentation = appBarController?.presentation else { return }
         menu.items.first { $0.action == #selector(toggleCommandSwipe) }?.title = appBarController?.swipeMenuTitle ?? "Command＋双指滑动切换"
         menu.items.first { $0.action == #selector(toggleAppBar) }?.state = presentation.enabled ? .on : .off
-        for item in menu.items.flatMap({ $0.submenu?.items ?? [] }) {
-            item.state = item.representedObject as? String == presentation.placement.rawValue ? .on : .off
-        }
     }
 
     // observeCodexCompletion 只消费 Go 稳定完成事件，重复 state 轮询不会重复投递。
