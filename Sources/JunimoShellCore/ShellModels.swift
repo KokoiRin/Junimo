@@ -32,8 +32,12 @@ public struct CodexUsageWindow: Codable, Equatable {
 public struct CodexUsageSnapshot: Codable, Equatable {
     public var status: CodexUsageStatus
     public var primary: CodexUsageWindow?
+    public var message: String?
+    public var refreshedAt: String?
 
-    public init(status: CodexUsageStatus = .loading, primary: CodexUsageWindow? = nil) {
+    public init(status: CodexUsageStatus = .loading, primary: CodexUsageWindow? = nil, message: String? = nil, refreshedAt: String? = nil) {
+        self.message = message
+        self.refreshedAt = refreshedAt
         self.status = status
         self.primary = primary
     }
@@ -88,19 +92,22 @@ public struct CodexActivitySnapshot: Codable, Equatable {
     }
 }
 
-// SurfaceState 是协议 v5 的完整只读组合快照。
+// SurfaceState 是协议 v7 的完整只读组合快照。
 public struct SurfaceState: Codable, Equatable {
     public var revision: UInt64
     public var codex: CodexUsageSnapshot
+    public var grok: CodexUsageSnapshot
     public var activity: CodexActivitySnapshot
 
     public init(
         revision: UInt64 = 0,
         codex: CodexUsageSnapshot = CodexUsageSnapshot(),
+        grok: CodexUsageSnapshot = CodexUsageSnapshot(),
         activity: CodexActivitySnapshot = CodexActivitySnapshot()
     ) {
         self.revision = revision
         self.codex = codex
+        self.grok = grok
         self.activity = activity
     }
 }

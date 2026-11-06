@@ -23,7 +23,7 @@ guard CommandLine.arguments.count == 2 else {
 setenv("JUNIMO_BACKEND_EXECUTABLE", CommandLine.arguments[1], 1)
 
 Task {
-    // 真实 Swift client 启动 Go 后端后，应连续解码 v6 只读快照并观察到单调 revision。
+    // 真实 Swift client 启动 Go 后端后，应连续解码 v7 只读快照并观察到单调 revision。
     let port = 46_000 + Int(getpid() % 1_000)
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("junimo-shortcuts-contract-\(UUID().uuidString)")
     setenv("JUNIMO_DATA_DIR", directory.path, 1)
@@ -40,6 +40,7 @@ Task {
             [.loading, .available, .unavailable].contains(first.codex.status),
             "Codex usage should decode a declared availability state"
         )
+        try expect([.loading, .available, .unavailable].contains(first.grok.status), "Grok usage should decode independently from Codex")
         try expect(
             [.loading, .available, .unavailable].contains(first.activity.status),
             "Codex activity should decode independently from usage"
@@ -99,7 +100,7 @@ Task {
         try expect(restored.items == saved, "backend restart should preserve app order")
 
         backend.stop()
-        print("Junimo Swift-Go v6 contract tests passed")
+        print("Junimo Swift-Go v7 contract tests passed")
         try? FileManager.default.removeItem(at: directory)
         exit(0)
     } catch {

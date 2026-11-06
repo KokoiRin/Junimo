@@ -11,7 +11,7 @@ import (
 	"junimo/backend/internal/codexusage"
 )
 
-const protocolVersion = 6
+const protocolVersion = 7
 
 type healthResponse struct {
 	Status          string `json:"status"`
@@ -19,10 +19,11 @@ type healthResponse struct {
 	InstanceID      string `json:"instanceId,omitempty"`
 }
 
-// state 只组合轻量产品仍需公开的两类 Codex 事实。
+// state 组合独立的 Codex、Grok 用量与 Codex 完成事实。
 type state struct {
 	mu               sync.Mutex
 	usageSnapshot    func() codexusage.Snapshot
+	grokSnapshot     func() codexusage.Snapshot
 	activitySnapshot func() codexactivity.Snapshot
 	revision         uint64
 }
@@ -30,6 +31,7 @@ type state struct {
 type stateResponse struct {
 	Revision uint64                 `json:"revision"`
 	Codex    codexusage.Snapshot    `json:"codex"`
+	Grok     codexusage.Snapshot    `json:"grok"`
 	Activity codexactivity.Snapshot `json:"activity"`
 }
 
@@ -41,16 +43,21 @@ func (state *state) snapshot() stateResponse {
 	return stateResponse{
 		Revision: state.revision,
 		Codex:    state.usageSnapshot(),
+		Grok:     state.grokSnapshot(),
 		Activity: state.activitySnapshot(),
 	}
 }
 
-// newHandler 提供协议 v6 的状态快照、收藏管理和应用切换目标接口。
+// newHandler 提供协议 v7 的状态快照、收藏管理和应用切换目标接口。
 func newHandler(
 	usageProvider func() codexusage.Snapshot,
 	activityProvider func() codexactivity.Snapshot,
 	stores ...*shortcutStore,
 ) http.Handler {
+	return newHandlerWithGrok(usageProvider, activityProvider, nil, stores...)
+}
+
+func newHandlerWithGrok(usageProvider func() codexusage.Snapshot, activityProvider func() codexactivity.Snapshot, grokProvider func() codexusage.Snapshot, stores ...*shortcutStore) http.Handler {
 	if usageProvider == nil {
 		usageProvider = func() codexusage.Snapshot {
 			return codexusage.Snapshot{Status: codexusage.StatusLoading}
@@ -61,7 +68,10 @@ func newHandler(
 			return codexactivity.Snapshot{Status: codexactivity.StatusLoading}
 		}
 	}
-	current := &state{usageSnapshot: usageProvider, activitySnapshot: activityProvider}
+	if grokProvider == nil {
+		grokProvider = func() codexusage.Snapshot { return codexusage.Snapshot{Status: codexusage.StatusLoading} }
+	}
+	current := &state{usageSnapshot: usageProvider, activitySnapshot: activityProvider, grokSnapshot: grokProvider}
 	mux := http.NewServeMux()
 	instanceID := os.Getenv("JUNIMO_INSTANCE_ID")
 	store := newShortcutStore()

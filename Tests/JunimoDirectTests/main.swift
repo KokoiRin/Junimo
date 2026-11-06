@@ -8,10 +8,11 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
     }
 }
 
-// v5 后端快照应完整解码用量、activity 和稳定完成事件。
+// v7 快照在 Codex 用量可用而 Grok 不可用时，应分别解码两个来源并保留稳定完成事件。
 let stateJSON = """
 {
   "revision": 7,
+  "grok": {"status":"unavailable"},
   "codex": {
     "status": "available",
     "primary": {"remainingPercent": 82, "windowDurationMinutes": 300, "resetsAt": 1783655023}
@@ -28,6 +29,7 @@ let stateJSON = """
 }
 """
 let state = try JSONDecoder().decode(SurfaceState.self, from: Data(stateJSON.utf8))
+expect(state.grok.status == .unavailable, "Grok availability should remain independent")
 expect(state.revision == 7, "State should preserve backend revision")
 expect(state.codex.compactSummary == "5h 82%", "State should format the primary Codex window")
 expect(state.activity.status == .available, "State should preserve activity availability")

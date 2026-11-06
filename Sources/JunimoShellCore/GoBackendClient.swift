@@ -13,7 +13,7 @@ public final class GoBackendClient: ShellBackendClient, AppShortcutsBackend {
         var instanceId: String?
     }
 
-    private static let supportedProtocolVersion = 6
+    private static let supportedProtocolVersion = 7
     private let port: Int
     private var process: Process?
     private var instanceID: String?

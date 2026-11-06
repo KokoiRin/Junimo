@@ -6,10 +6,10 @@ let junimoPanelBlack = Color(red: 0.006, green: 0.007, blue: 0.008)
 
 // JunimoPanelLayout 集中定义控制器与 SwiftUI 必须共享的面板尺寸。
 enum JunimoPanelLayout {
-    static let collapsedWidth: CGFloat = 420
+    static let collapsedWidth: CGFloat = 596
     // collapsedNotchClearance 包含半个刘海宽度与不贴边的安全间隔，决定胶囊内边缘到屏幕中心的距离。
     static let collapsedNotchClearance: CGFloat = 102
-    // collapsedCapsuleLaneWidth 为每侧胶囊保留独立等宽轨道，避免内容宽度不同破坏刘海两侧对称性。
+    // 左侧轨道容纳并排的 Codex、Grok Bot 用量，中央刘海净空保持不变。
     static let collapsedCapsuleLaneWidth: CGFloat = collapsedWidth / 2 - collapsedNotchClearance
     static let expandedWidth: CGFloat = 560
     static let expandedHeight: CGFloat = 260

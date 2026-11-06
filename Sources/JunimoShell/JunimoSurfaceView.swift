@@ -54,7 +54,10 @@ struct JunimoSurfaceView: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                usageCard
+                HStack(spacing: 8) {
+                    usageCard("Codex", usage: state.surfaceState.codex, accent: junimoAccent)
+                    usageCard("Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
+                }
             }
 
             Rectangle()
@@ -113,20 +116,26 @@ struct JunimoSurfaceView: View {
         }
     }
 
-    private var usageCard: some View {
-        VStack(alignment: .trailing, spacing: 4) {
-            Text("Codex 剩余用量")
+    private let grokAccent = Color(red: 0.42, green: 0.72, blue: 1)
+
+    private func usageCard(_ name: String, usage: CodexUsageSnapshot, accent: Color) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("\(name) 剩余")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white.opacity(0.42))
-            Text(state.surfaceState.codex.compactSummary)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(codexStatusColor)
+                .foregroundStyle(.white.opacity(0.48))
+            HStack(spacing: 7) {
+                usageRing(usage, accent: accent)
+                Text(usage.compactSummary)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(statusColor(usage, accent: accent))
+            }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .frame(height: 54)
         .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+        .help(usageHelp(name, usage: usage))
     }
 
     private func shortcutButton(_ command: QuickLaunchCommand) -> some View {
@@ -154,7 +163,7 @@ struct JunimoSurfaceView: View {
     // collapsed 只允许中央刘海净空触发展开；两侧胶囊保持各自的点击或展示职责。
     private var collapsed: some View {
         HStack(spacing: 0) {
-            codexUsageCapsule
+            agentUsageCapsule
                 .frame(width: JunimoPanelLayout.collapsedCapsuleLaneWidth, alignment: .trailing)
             notchHoverTrigger
         }
@@ -176,26 +185,67 @@ struct JunimoSurfaceView: View {
             .accessibilityIdentifier("notch.expandTrigger")
     }
 
-    private var codexUsageCapsule: some View {
-        HStack(spacing: 7) {
-            ZStack {
-                Circle().stroke(.white.opacity(0.12), lineWidth: 2)
-                Circle()
-                    .trim(from: 0, to: codexProgressFraction)
-                    .stroke(codexStatusColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-            }
-            .frame(width: 12, height: 12)
-            Text(state.surfaceState.codex.compactSummary)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.white.opacity(0.78))
+    private var agentUsageCapsule: some View {
+        HStack(spacing: 12) {
+            compactUsage("C", name: "Codex", usage: state.surfaceState.codex, accent: junimoAccent)
+            compactUsage("G", name: "Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
         }
-        .padding(.horizontal, 9)
+        .padding(.horizontal, 10)
         .frame(height: 28)
         .background(capsuleBackground, in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 1))
         .shadow(color: .black.opacity(0.24), radius: 2)
+    }
+
+    private func compactUsage(_ label: String, name: String, usage: CodexUsageSnapshot, accent: Color) -> some View {
+        HStack(spacing: 5) {
+            usageRing(usage, accent: accent)
+            Text(label)
+                .foregroundStyle(accent)
+            Text(usage.status == .available ? usage.primary.map { "\(min(100, max(0, $0.remainingPercent)))%" } ?? "—" : usage.compactSummary)
+                .foregroundStyle(.white.opacity(0.78))
+        }
+        .font(.system(size: 11, weight: .semibold, design: .rounded))
+        .monospacedDigit()
+        .fixedSize()
+        .help(usageHelp(name, usage: usage))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name) 剩余用量 \(usage.compactSummary)")
+        .accessibilityIdentifier("usage.\(label)")
+    }
+
+    private func usageRing(_ usage: CodexUsageSnapshot, accent: Color) -> some View {
+        ZStack {
+            Circle().stroke(.white.opacity(0.12), lineWidth: 2)
+            if usage.status == .available, let remaining = usage.primary?.remainingPercent {
+                Circle()
+                    .trim(from: 0, to: CGFloat(min(100, max(0, remaining))) / 100)
+                    .stroke(accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            } else {
+                Text(usage.status == .loading ? "·" : "—")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(statusColor(usage, accent: accent))
+            }
+        }
+        .frame(width: 12, height: 12)
+    }
+
+    private func statusColor(_ usage: CodexUsageSnapshot, accent: Color) -> Color {
+        switch usage.status {
+        case .available: return accent
+        case .unavailable: return .orange
+        case .loading: return .white.opacity(0.36)
+        }
+    }
+
+    private func usageHelp(_ name: String, usage: CodexUsageSnapshot) -> String {
+        var text = "\(name) 剩余用量：\(usage.compactSummary)"
+        if let message = usage.message { text += "\n" + message }
+        if let timestamp = usage.refreshedAt, let date = ISO8601DateFormatter().date(from: timestamp) {
+            text += "\n更新于 " + date.formatted(date: .abbreviated, time: .shortened)
+        }
+        return text
     }
 
     private var capsuleBackground: LinearGradient {
@@ -228,19 +278,4 @@ struct JunimoSurfaceView: View {
         }
     }
 
-    private var codexStatusColor: Color {
-        switch state.surfaceState.codex.status {
-        case .available: return junimoAccent
-        case .unavailable: return .orange
-        case .loading: return .white.opacity(0.36)
-        }
-    }
-
-    private var codexProgressFraction: CGFloat {
-        guard state.surfaceState.codex.status == .available,
-              let remaining = state.surfaceState.codex.primary?.remainingPercent else {
-            return 0
-        }
-        return CGFloat(min(100, max(0, remaining))) / 100
-    }
 }

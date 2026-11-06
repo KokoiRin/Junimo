@@ -375,7 +375,51 @@ func testSwipePermissionRecovery() {
     guard monitor.status == .stopped && !access.isRunning else { fail("stop must release the listener") }
 }
 
+final class UsageVisualBackend: ShellBackendClient {
+    func start() async throws {}
+    func stop() {}
+    func loadState() async throws -> SurfaceState {
+        SurfaceState(revision: 1,
+            codex: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 82, windowDurationMinutes: 300)),
+            grok: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 15, windowDurationMinutes: 10080)))
+    }
+}
+
+// 两个来源分别剩余 82% 和 15% 时，折叠及展开面板都应画出绿色与蓝色圆环，并保留中央刘海净空。
+@MainActor
+func testBothUsageRingsRender() async {
+    let state = ShellState(backend: UsageVisualBackend())
+    state.start()
+    defer { state.stop() }
+    for _ in 0..<100 {
+        if state.surfaceState.grok.status == .available { break }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+    }
+    guard state.surfaceState.grok.status == .available else { fail("usage fixture did not load") }
+    for expanded in [false, true] {
+        if expanded { state.pointerEntered() }
+        let size = expanded
+            ? CGSize(width: JunimoPanelLayout.expandedWidth, height: JunimoPanelLayout.expandedHeight)
+            : CGSize(width: JunimoPanelLayout.collapsedCapsuleLaneWidth + JunimoPanelLayout.collapsedNotchClearance * 2, height: 33)
+        let bitmap = render(JunimoSurfaceView(state: state, launcher: QuickLauncher(workspace: VisualFakeWorkspace())).frame(width: size.width, height: size.height), size: size)
+        var green = 0
+        var blue = 0
+        for x in 0..<bitmap.pixelsWide {
+            for y in 0..<bitmap.pixelsHigh {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB), color.alphaComponent > 0.5 else { continue }
+                if color.greenComponent > 0.65 && color.redComponent < 0.45 && color.blueComponent < 0.7 { green += 1 }
+                if color.blueComponent > 0.75 && color.redComponent < 0.6 && color.greenComponent > 0.5 && color.greenComponent < 0.85 { blue += 1 }
+            }
+        }
+        guard green > 8 && blue > 8 else { fail("both usage colors should be visible: green=\(green) blue=\(blue)") }
+        let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/direct/usage-\(expanded ? "expanded" : "collapsed").png")
+        guard let png = bitmap.representation(using: .png, properties: [:]) else { fail("usage preview could not encode") }
+        do { try png.write(to: path) } catch { fail("usage preview could not save") }
+    }
+}
+
 Task { @MainActor in
+    await testBothUsageRingsRender()
     testSwipePermissionRecovery()
     testCommandSwipeConsumesOneGesture()
     testCommandSwipeLeavesOtherInputAlone()

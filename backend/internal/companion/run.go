@@ -11,6 +11,7 @@ import (
 	"junimo/backend/internal/codexactivity"
 	"junimo/backend/internal/codexappserver"
 	"junimo/backend/internal/codexusage"
+	"junimo/backend/internal/grokusage"
 )
 
 const (
@@ -31,10 +32,12 @@ func Run(ctx context.Context) error {
 	}
 	executable := codexappserver.ResolveExecutable()
 	usageMonitor := codexusage.NewMonitor(codexusage.NewClient(executable))
+	grokMonitor := codexusage.NewMonitor(grokusage.NewClient())
 	activityMonitor := codexactivity.NewMonitor(codexactivity.NewClient(executable))
 	monitorContext, stopMonitors := context.WithCancel(ctx)
 	defer stopMonitors()
 	usageMonitor.Start(monitorContext, usageRefreshInterval, usageQueryTimeout)
+	grokMonitor.Start(monitorContext, usageRefreshInterval, usageQueryTimeout)
 	activityMonitor.Start(monitorContext, activityRefreshInterval, activityQueryTimeout)
 
 	port := os.Getenv("JUNIMO_BACKEND_PORT")
@@ -44,7 +47,7 @@ func Run(ctx context.Context) error {
 	address := "127.0.0.1:" + port
 	server := &http.Server{
 		Addr:    address,
-		Handler: newHandler(usageMonitor.Snapshot, activityMonitor.Snapshot),
+		Handler: newHandlerWithGrok(usageMonitor.Snapshot, activityMonitor.Snapshot, grokMonitor.Snapshot),
 	}
 	serverErrors := make(chan error, 1)
 	go func() {
