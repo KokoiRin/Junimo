@@ -16,15 +16,7 @@ public struct CodexUsageWindow: Codable, Equatable {
     }
 
     fileprivate var compactSummary: String {
-        let duration: String
-        if windowDurationMinutes >= 24 * 60, windowDurationMinutes.isMultiple(of: 24 * 60) {
-            duration = "\(windowDurationMinutes / (24 * 60))d"
-        } else if windowDurationMinutes >= 60, windowDurationMinutes.isMultiple(of: 60) {
-            duration = "\(windowDurationMinutes / 60)h"
-        } else {
-            duration = "\(windowDurationMinutes)m"
-        }
-        return "\(duration) \(min(100, max(0, remainingPercent)))%"
+        "\(min(100, max(0, remainingPercent)))%"
     }
 }
 

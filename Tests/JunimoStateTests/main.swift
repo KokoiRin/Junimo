@@ -101,7 +101,7 @@ func testActivityFailureKeepsUsageVisible() async {
     await waitUntil("activity failure should remain a partial state") {
         state.surfaceState.activity.status == .unavailable
     }
-    if state.surfaceState.codex.compactSummary != "5h 64%" {
+    if state.surfaceState.codex.compactSummary != "64%" {
         fail("usage should remain visible when activity is unavailable")
     }
     state.stop()
@@ -128,7 +128,7 @@ func testShellStateRejectsOlderSnapshots() async {
     state.start()
     await waitUntil("current snapshot should load") { state.surfaceState.revision == 2 }
     try? await Task.sleep(nanoseconds: 1_100_000_000)
-    if state.surfaceState.revision != 2 || state.surfaceState.codex.compactSummary != "5h 70%" {
+    if state.surfaceState.revision != 2 || state.surfaceState.codex.compactSummary != "70%" {
         fail("older revision must not replace the visible companion state")
     }
     state.stop()

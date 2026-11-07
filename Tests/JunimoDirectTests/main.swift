@@ -31,7 +31,7 @@ let stateJSON = """
 let state = try JSONDecoder().decode(SurfaceState.self, from: Data(stateJSON.utf8))
 expect(state.grok.status == .unavailable, "Grok availability should remain independent")
 expect(state.revision == 7, "State should preserve backend revision")
-expect(state.codex.compactSummary == "5h 82%", "State should format the primary Codex window")
+expect(state.codex.compactSummary == "82%", "State should show the remaining percentage without its window duration")
 expect(state.activity.status == .available, "State should preserve activity availability")
 expect(state.activity.completionEvent?.id == "turn-1", "State should preserve stable turn identity")
 expect(state.activity.completionEvent?.title == "实现轻量 Junimo", "State should preserve the task title")
@@ -43,9 +43,20 @@ expect(
     CodexUsageSnapshot(
         status: .available,
         primary: CodexUsageWindow(remainingPercent: 101, windowDurationMinutes: 300)
-    ).compactSummary == "5h 100%",
+    ).compactSummary == "100%",
     "Usage display should clamp invalid percentages"
 )
+
+// 不同额度周期的剩余 0% 和 100% 都应完整显示百分比，不附加周期文字。
+for (remaining, duration, summary) in [(0, 300, "0%"), (100, 10_080, "100%")] {
+    expect(
+        CodexUsageSnapshot(
+            status: .available,
+            primary: CodexUsageWindow(remainingPercent: remaining, windowDurationMinutes: duration)
+        ).compactSummary == summary,
+        "Usage summary should preserve the full percentage without a duration"
+    )
+}
 
 // Go 已建立历史基线后，Swift 收到的第一条完成事件必须立即提醒，重复快照不得再次提醒。
 var gate = CodexCompletionNotificationGate()

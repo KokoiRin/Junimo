@@ -1,7 +1,7 @@
 import JunimoCore
 import SwiftUI
 
-// JunimoSurfaceView 在折叠 Codex 摘要与展开 companion 面板之间切换。
+// JunimoSurfaceView 在折叠用量圆环与展开 companion 面板之间切换。
 @MainActor
 struct JunimoSurfaceView: View {
     @ObservedObject var state: ShellState
@@ -58,6 +58,7 @@ struct JunimoSurfaceView: View {
                     usageCard("Codex", usage: state.surfaceState.codex, accent: junimoAccent)
                     usageCard("Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
                 }
+                .layoutPriority(1)
             }
 
             Rectangle()
@@ -126,13 +127,16 @@ struct JunimoSurfaceView: View {
             HStack(spacing: 7) {
                 usageRing(usage, accent: accent)
                 Text(usage.compactSummary)
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(statusColor(usage, accent: accent))
             }
         }
         .padding(.horizontal, 12)
         .frame(height: 54)
+        .fixedSize(horizontal: true, vertical: false)
         .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
         .help(usageHelp(name, usage: usage))
@@ -160,7 +164,6 @@ struct JunimoSurfaceView: View {
         .accessibilityIdentifier("shortcut.\(command.id)")
     }
 
-    // collapsed 只允许中央刘海净空触发展开；两侧胶囊保持各自的点击或展示职责。
     private var collapsed: some View {
         HStack(spacing: 0) {
             agentUsageCapsule
@@ -171,24 +174,24 @@ struct JunimoSurfaceView: View {
         .frame(maxHeight: .infinity)
         .background(Color.black.opacity(0.001))
         .contentShape(Rectangle())
+        .onHover { inside in
+            if inside {
+                state.pointerEntered()
+            }
+        }
     }
 
     private var notchHoverTrigger: some View {
         Color.black.opacity(0.001)
             .frame(width: notchClearance * 2)
             .contentShape(Rectangle())
-            .onHover { inside in
-                if inside {
-                    state.pointerEntered()
-                }
-            }
             .accessibilityIdentifier("notch.expandTrigger")
     }
 
     private var agentUsageCapsule: some View {
         HStack(spacing: 12) {
-            compactUsage("C", name: "Codex", usage: state.surfaceState.codex, accent: junimoAccent)
-            compactUsage("G", name: "Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
+            compactUsage(name: "Codex", usage: state.surfaceState.codex, accent: junimoAccent)
+            compactUsage(name: "Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
         }
         .padding(.horizontal, 10)
         .frame(height: 28)
@@ -197,21 +200,12 @@ struct JunimoSurfaceView: View {
         .shadow(color: .black.opacity(0.24), radius: 2)
     }
 
-    private func compactUsage(_ label: String, name: String, usage: CodexUsageSnapshot, accent: Color) -> some View {
-        HStack(spacing: 5) {
-            usageRing(usage, accent: accent)
-            Text(label)
-                .foregroundStyle(accent)
-            Text(usage.status == .available ? usage.primary.map { "\(min(100, max(0, $0.remainingPercent)))%" } ?? "—" : usage.compactSummary)
-                .foregroundStyle(.white.opacity(0.78))
-        }
-        .font(.system(size: 11, weight: .semibold, design: .rounded))
-        .monospacedDigit()
-        .fixedSize()
-        .help(usageHelp(name, usage: usage))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(name) 剩余用量 \(usage.compactSummary)")
-        .accessibilityIdentifier("usage.\(label)")
+    private func compactUsage(name: String, usage: CodexUsageSnapshot, accent: Color) -> some View {
+        usageRing(usage, accent: accent)
+            .help(usageHelp(name, usage: usage))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(name) 剩余用量 \(usage.compactSummary)")
+            .accessibilityIdentifier("usage.\(name)")
     }
 
     private func usageRing(_ usage: CodexUsageSnapshot, accent: Color) -> some View {

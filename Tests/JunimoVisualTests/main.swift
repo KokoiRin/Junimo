@@ -380,12 +380,16 @@ final class UsageVisualBackend: ShellBackendClient {
     func stop() {}
     func loadState() async throws -> SurfaceState {
         SurfaceState(revision: 1,
-            codex: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 82, windowDurationMinutes: 300)),
-            grok: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 15, windowDurationMinutes: 10080)))
+            codex: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 100, windowDurationMinutes: 10080)),
+            grok: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 100, windowDurationMinutes: 10080)),
+            activity: CodexActivitySnapshot(status: .available, completionEvent: CodexCompletionEvent(
+                id: "visual-long-task", threadId: "visual-thread",
+                title: "一个很长的任务标题应当让出空间，确保两个来源的剩余百分比始终完整显示而不被截断",
+                completedAt: 1)))
     }
 }
 
-// 两个来源分别剩余 82% 和 15% 时，折叠及展开面板都应画出绿色与蓝色圆环，并保留中央刘海净空。
+// 两个来源都剩余 100% 且最近任务标题很长时，折叠仅显示双色圆环，展开应完整显示百分比并保留中央刘海净空。
 @MainActor
 func testBothUsageRingsRender() async {
     let state = ShellState(backend: UsageVisualBackend())
