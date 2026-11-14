@@ -53,7 +53,7 @@ func TestRejectUnusableCache(t *testing.T) {
 				case "future":
 					r["readAtMs"] = testNow.Add(time.Hour).UnixMilli()
 				case "version":
-					d["schemaVersion"] = 3
+					d["schemaVersion"] = 4
 				case "absent":
 					v["kind"] = "absent"
 				case "null-percent":
@@ -69,6 +69,70 @@ func TestRejectUnusableCache(t *testing.T) {
 			}
 			if _, err := parse(data, settings{}, testNow); err == nil {
 				t.Fatal("invalid cache accepted")
+			}
+		})
+	}
+}
+
+// Grok Bot 升级到 v3 并新增个人账户归属与余额字段后，仍应读取剩余 45%，旧 v2 缓存也继续可用。
+func TestParseSupportedCacheVersions(t *testing.T) {
+	for _, version := range []int{2, 3} {
+		data := fixture(t, func(d map[string]any) {
+			d["schemaVersion"] = version
+			usage := d["value"].(map[string]any)["reading"].(map[string]any)["usage"].(map[string]any)
+			usage["percentUsed"] = 54.71289274106176
+			if version == 3 {
+				usage["readForTeamId"] = nil
+				usage["prepaidBalanceCents"] = 0
+			}
+		})
+		snapshot, err := parse(data, settings{}, testNow)
+		if err != nil || snapshot.Primary == nil || snapshot.Primary.RemainingPercent != 45 {
+			t.Fatalf("version=%d snapshot=%+v err=%v", version, snapshot, err)
+		}
+	}
+}
+
+// v3 记录的实际查询团队与当前个人或团队一致时才能展示，归属缺省时沿用外层团队，混入其他团队、无效类型或编号时应拒绝。
+func TestParseReadingTeamOwnership(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		selected  int64
+		readFor   any
+		omit      bool
+		wantValid bool
+	}{
+		{name: "personal", readFor: nil, wantValid: true},
+		{name: "team", selected: 4, readFor: 4, wantValid: true},
+		{name: "omitted", selected: 4, omit: true, wantValid: true},
+		{name: "personal-reading-for-team", readFor: 4},
+		{name: "team-reading-for-personal", selected: 4, readFor: nil},
+		{name: "other-team", selected: 4, readFor: 5},
+		{name: "invalid-type", readFor: "4"},
+		{name: "invalid-id", readFor: -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := settings{ActiveAccountScope: "account"}
+			if tc.selected != 0 {
+				config.SelectedTeam = &struct {
+					TeamID       int64  `json:"teamId"`
+					AccountScope string `json:"accountScope"`
+				}{TeamID: tc.selected, AccountScope: "account"}
+			}
+			data := fixture(t, func(d map[string]any) {
+				d["schemaVersion"] = 3
+				value := d["value"].(map[string]any)
+				if tc.selected != 0 {
+					value["selectedTeamId"] = tc.selected
+				}
+				if !tc.omit {
+					usage := value["reading"].(map[string]any)["usage"].(map[string]any)
+					usage["readForTeamId"] = tc.readFor
+				}
+			})
+			_, err := parse(data, config, testNow)
+			if (err == nil) != tc.wantValid {
+				t.Fatalf("valid=%v err=%v", tc.wantValid, err)
 			}
 		})
 	}

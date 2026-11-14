@@ -73,7 +73,7 @@ open /Applications/Junimo.app
 
 Grok Bot 圆环显示本周剩余用量。Go 后端每 30 秒读取 Grok Bot 桌面应用的本机用量缓存，跟随原应用更新；悬停可查看采样时间。打开 Grok Bot 的 Settings → Usage & Billing 可以刷新原应用数据。
 
-读取范围为 `~/.grokbot/settings.json` 的当前账户/团队与 `~/Library/Application Support/Grok Bot/sand-client-persistence` 的对应用量缓存，不读取登录凭据。账户切换、缓存超过原有效期或 24 小时、跨过额度重置时间、格式不支持时显示 `—`，Codex 继续独立刷新。当前适配 Grok Bot 0.79.2 的 v2 缓存格式；原应用升级可能需要更新适配器。
+读取范围为 `~/.grokbot/settings.json` 的当前账户/团队与 `~/Library/Application Support/Grok Bot/sand-client-persistence` 的对应用量缓存，不读取登录凭据。账户切换、缓存超过原有效期或 24 小时、跨过额度重置时间、格式不支持时显示 `—`，Codex 继续独立刷新。支持 Grok Bot 0.79.2 的 v2 缓存和 1.1.0 的 v3 缓存，并校验缓存中实际查询的团队归属；原应用升级可能需要更新适配器。
 
 本机协议 v7 的 `/state` 增加独立 `grok` 快照，字段与 `codex` 用量一致，包含状态、主额度窗口、来源说明和采样时间。
 

@@ -44,9 +44,10 @@ type cache struct {
 		SelectedTeamID *int64 `json:"selectedTeamId"`
 		Reading        struct {
 			Usage *struct {
-				PercentUsed             *float64 `json:"percentUsed"`
-				NextResetMs             *int64   `json:"nextResetMs"`
-				HasNonZeroIncludedLimit bool     `json:"hasNonZeroIncludedLimit"`
+				PercentUsed             *float64        `json:"percentUsed"`
+				NextResetMs             *int64          `json:"nextResetMs"`
+				HasNonZeroIncludedLimit bool            `json:"hasNonZeroIncludedLimit"`
+				ReadForTeamID           json.RawMessage `json:"readForTeamId"`
 			} `json:"usage"`
 			ReadAtMs int64 `json:"readAtMs"`
 		} `json:"reading"`
@@ -113,7 +114,7 @@ func teamID(s settings) int64 {
 
 func parse(data []byte, config settings, now time.Time) (codexusage.Snapshot, error) {
 	var cached cache
-	if json.Unmarshal(data, &cached) != nil || cached.SchemaVersion != 2 || cached.Value.Kind != "present" {
+	if json.Unmarshal(data, &cached) != nil || (cached.SchemaVersion != 2 && cached.SchemaVersion != 3) || cached.Value.Kind != "present" {
 		return codexusage.Snapshot{}, errors.New("Grok Bot 用量缓存格式暂不支持")
 	}
 	v := cached.Value
@@ -127,6 +128,23 @@ func parse(data []byte, config settings, now time.Time) (codexusage.Snapshot, er
 	u := v.Reading.Usage
 	if u == nil || u.PercentUsed == nil || math.IsNaN(*u.PercentUsed) || math.IsInf(*u.PercentUsed, 0) || !u.HasNonZeroIncludedLimit {
 		return codexusage.Snapshot{}, errors.New("Grok Bot 未提供可用的个人额度")
+	}
+	// v3 can identify the team actually queried independently of the selected-team envelope.
+	if len(u.ReadForTeamID) > 0 {
+		var readForTeamID *int64
+		if err := json.Unmarshal(u.ReadForTeamID, &readForTeamID); err != nil {
+			return codexusage.Snapshot{}, errors.New("Grok Bot 用量缓存格式暂不支持")
+		}
+		var readFor int64
+		if readForTeamID != nil {
+			readFor = *readForTeamID
+			if readFor <= 0 {
+				return codexusage.Snapshot{}, errors.New("Grok Bot 用量缓存格式暂不支持")
+			}
+		}
+		if readFor != selected {
+			return codexusage.Snapshot{}, errors.New("Grok Bot 团队已切换，等待用量刷新")
+		}
 	}
 	at := time.UnixMilli(v.Reading.ReadAtMs)
 	if v.Reading.ReadAtMs <= 0 || at.After(now.Add(time.Minute)) || now.Sub(at) >= 24*time.Hour || v.ExpiresAtMs <= now.UnixMilli() || u.NextResetMs == nil || *u.NextResetMs <= now.UnixMilli() {
