@@ -24,10 +24,12 @@ func ResolveExecutable() string {
 			filepath.Join(home, ".local", "bin", "codex"),
 			filepath.Join(home, ".cargo", "bin", "codex"),
 			filepath.Join(home, ".npm-global", "bin", "codex"),
+			filepath.Join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex-cli", "CodexCLI.app", "Contents", "MacOS", "codex"),
 			filepath.Join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex"),
 		)
 	}
 	candidates = append(candidates,
+		"/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
 		"/Applications/ChatGPT.app/Contents/Resources/codex",
 		"/opt/homebrew/bin/codex",
 		"/usr/local/bin/codex",

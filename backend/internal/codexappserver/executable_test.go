@@ -41,3 +41,29 @@ func TestResolveExecutableFindsCodexOnPath(t *testing.T) {
 		t.Fatalf("executable = %q, want %q", resolved, executable)
 	}
 }
+
+// 桌面端更新后旧快捷路径成为断链且 PATH 无 Codex 时，应从用户应用目录的新 CodexCLI bundle 中找到可执行文件。
+func TestResolveExecutableFindsNestedDesktopCLIWithBrokenLegacyLink(t *testing.T) {
+	home := t.TempDir()
+	resources := filepath.Join(home, "Applications", "ChatGPT.app", "Contents", "Resources")
+	executable := filepath.Join(resources, "codex-cli", "CodexCLI.app", "Contents", "MacOS", "codex")
+	if err := os.MkdirAll(filepath.Dir(executable), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nprintf 'codex-cli test\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(resources, "codex"), filepath.Join(bin, "codex")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin)
+	t.Setenv("JUNIMO_CODEX_EXECUTABLE", "")
+	if resolved := ResolveExecutable(); resolved != executable {
+		t.Fatalf("executable = %q, want nested desktop CLI %q", resolved, executable)
+	}
+}
