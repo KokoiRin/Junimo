@@ -7,7 +7,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var shellState: ShellState?
     private var panelController: NotchPanelController?
     private var appBarController: AppBarController?
-    private var statusItem: NSStatusItem?
     private var lifecycleWindow: NSWindow?
     private var activityObservation: AnyCancellable?
     private var completionNotificationGate = CodexCompletionNotificationGate()
@@ -29,11 +28,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         state.start()
         deliverNotificationProbeIfRequested()
 
-        let controller = NotchPanelController(state: state)
+        let controller = NotchPanelController(state: state, menu: makePanelMenu())
         panelController = controller
         controller.show()
         appBarController = AppBarController(state: state, backend: backend)
-        installStatusItem()
         if pendingReopen { reopenPanel() }
     }
 
@@ -82,11 +80,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.terminate(nil)
     }
 
-    private func installStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Junimo")
+    private func makePanelMenu() -> NSMenu {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Show Junimo", action: #selector(showPanelFromMenu), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "悬停展开面板", action: #selector(toggleHoverExpansion), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Edit Quick Launches…", action: #selector(editQuickLaunchesFromMenu), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "显示应用栏", action: #selector(toggleAppBar), keyEquivalent: ""))
@@ -96,14 +93,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         menu.addItem(NSMenuItem(title: "Quit Junimo", action: #selector(quitFromMenu), keyEquivalent: "q"))
         menu.items.forEach { $0.target = self }
-        item.menu = menu
-        statusItem = item
+        return menu
     }
 
+    @objc private func toggleHoverExpansion() { shellState?.toggleHoverExpansion() }
     @objc private func toggleAppBar() { appBarController?.presentation.toggle() }
     @objc private func manageAppShortcuts() { appBarController?.showManager() }
     @objc private func toggleCommandSwipe() { appBarController?.toggleCommandSwipe() }
     func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.items.first { $0.action == #selector(toggleHoverExpansion) }?.state = shellState?.hoverExpansionEnabled == true ? .on : .off
         guard let presentation = appBarController?.presentation else { return }
         menu.items.first { $0.action == #selector(toggleCommandSwipe) }?.title = appBarController?.swipeMenuTitle ?? "Command＋双指滑动切换"
         menu.items.first { $0.action == #selector(toggleAppBar) }?.state = presentation.enabled ? .on : .off

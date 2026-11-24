@@ -69,16 +69,19 @@ public struct CodexCompletionEvent: Codable, Equatable {
 
 // CodexActivitySnapshot 表示任务监控可用状态与最近一次完成事实。
 public struct CodexActivitySnapshot: Codable, Equatable {
+    public var isWorking: Bool?
     public var status: CodexActivityStatus
     public var completionEvent: CodexCompletionEvent?
     public var message: String?
 
     public init(
         status: CodexActivityStatus = .loading,
+        isWorking: Bool? = nil,
         completionEvent: CodexCompletionEvent? = nil,
         message: String? = nil
     ) {
         self.status = status
+        self.isWorking = isWorking
         self.completionEvent = completionEvent
         self.message = message
     }

@@ -85,6 +85,30 @@ func testShellStateLoadsCompanionStateAndManagesHover() async {
     }
 }
 
+// 默认悬停展开，关掉开关时面板立即收起，重启后仍只允许手动展开，重新开启后悬停恢复。
+@MainActor
+func testHoverExpansionPreference() {
+    let suite = "junimo-hover-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let state = ShellState(backend: FakeBackend(), defaults: defaults)
+    state.pointerEntered()
+    guard state.isExpanded else { fail("hover should expand by default") }
+    state.toggleHoverExpansion()
+    guard !state.isExpanded else { fail("disabling hover should collapse the panel") }
+
+    let restarted = ShellState(backend: FakeBackend(), defaults: defaults)
+    restarted.pointerEntered()
+    guard !restarted.isExpanded else { fail("hover should stay disabled after restart") }
+    restarted.expand()
+    guard restarted.isExpanded else { fail("manual expansion should still work") }
+    restarted.pointerExited()
+    guard !restarted.isExpanded else { fail("leaving a manually opened panel should collapse it") }
+    restarted.toggleHoverExpansion()
+    restarted.pointerEntered()
+    guard restarted.isExpanded else { fail("enabling hover should restore expansion") }
+}
+
 // activity 单独不可用时用量快照仍应保持可见，局部失败不能抹掉另一条产品事实。
 @MainActor
 func testActivityFailureKeepsUsageVisible() async {
@@ -310,6 +334,7 @@ Task { @MainActor in
     await testAppShortcutsKeepConfirmedStateOnFailure()
     testAppBarCapacityKeepsOverflowReachable()
     await testShellStateLoadsCompanionStateAndManagesHover()
+    testHoverExpansionPreference()
     await testActivityFailureKeepsUsageVisible()
     await testShellStateRejectsOlderSnapshots()
     await testQuickLaunchConfigurationHotReloadKeepsLastGoodCatalog()

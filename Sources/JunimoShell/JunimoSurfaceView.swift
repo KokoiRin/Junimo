@@ -55,7 +55,7 @@ struct JunimoSurfaceView: View {
                 }
                 Spacer()
                 HStack(spacing: 8) {
-                    usageCard("Codex", usage: state.surfaceState.codex, accent: junimoAccent)
+                    usageCard("Codex", usage: state.surfaceState.codex, accent: junimoAccent, working: codexWorking)
                     usageCard("Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
                 }
                 .layoutPriority(1)
@@ -118,14 +118,15 @@ struct JunimoSurfaceView: View {
     }
 
     private let grokAccent = Color(red: 0.42, green: 0.72, blue: 1)
+    private var codexWorking: Bool { state.surfaceState.activity.isWorking == true }
 
-    private func usageCard(_ name: String, usage: CodexUsageSnapshot, accent: Color) -> some View {
+    private func usageCard(_ name: String, usage: CodexUsageSnapshot, accent: Color, working: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text("\(name) 剩余")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.white.opacity(0.48))
             HStack(spacing: 7) {
-                usageRing(usage, accent: accent)
+                usageRing(usage, accent: accent, working: working)
                 Text(usage.compactSummary)
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .monospacedDigit()
@@ -139,7 +140,7 @@ struct JunimoSurfaceView: View {
         .fixedSize(horizontal: true, vertical: false)
         .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
-        .help(usageHelp(name, usage: usage))
+        .help(usageHelp(name, usage: usage, working: working))
     }
 
     private func shortcutButton(_ command: QuickLaunchCommand) -> some View {
@@ -190,7 +191,7 @@ struct JunimoSurfaceView: View {
 
     private var agentUsageCapsule: some View {
         HStack(spacing: 12) {
-            compactUsage(name: "Codex", usage: state.surfaceState.codex, accent: junimoAccent)
+            compactUsage(name: "Codex", usage: state.surfaceState.codex, accent: junimoAccent, working: codexWorking)
             compactUsage(name: "Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
         }
         .padding(.horizontal, 10)
@@ -200,22 +201,27 @@ struct JunimoSurfaceView: View {
         .shadow(color: .black.opacity(0.24), radius: 2)
     }
 
-    private func compactUsage(name: String, usage: CodexUsageSnapshot, accent: Color) -> some View {
-        usageRing(usage, accent: accent)
-            .help(usageHelp(name, usage: usage))
+    private func compactUsage(name: String, usage: CodexUsageSnapshot, accent: Color, working: Bool = false) -> some View {
+        usageRing(usage, accent: accent, working: working)
+            .help(usageHelp(name, usage: usage, working: working))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(name) 剩余用量 \(usage.compactSummary)")
+            .accessibilityLabel("\(name)\(working ? " 正在工作，" : " ")剩余用量 \(usage.compactSummary)")
             .accessibilityIdentifier("usage.\(name)")
     }
 
-    private func usageRing(_ usage: CodexUsageSnapshot, accent: Color) -> some View {
+    private func usageRing(_ usage: CodexUsageSnapshot, accent: Color, working: Bool) -> some View {
         ZStack {
             Circle().stroke(.white.opacity(0.12), lineWidth: 2)
             if usage.status == .available, let remaining = usage.primary?.remainingPercent {
-                Circle()
-                    .trim(from: 0, to: CGFloat(min(100, max(0, remaining))) / 100)
-                    .stroke(accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
+                let fraction = CGFloat(min(100, max(0, remaining))) / 100
+                if working && fraction > 0 {
+                    WorkingQuotaArc(fraction: fraction, accent: accent)
+                } else {
+                    Circle()
+                        .trim(from: 0, to: fraction)
+                        .stroke(accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
             } else {
                 Text(usage.status == .loading ? "·" : "—")
                     .font(.system(size: 7, weight: .bold))
@@ -233,8 +239,9 @@ struct JunimoSurfaceView: View {
         }
     }
 
-    private func usageHelp(_ name: String, usage: CodexUsageSnapshot) -> String {
+    private func usageHelp(_ name: String, usage: CodexUsageSnapshot, working: Bool) -> String {
         var text = "\(name) 剩余用量：\(usage.compactSummary)"
+        if working { text += "\n正在工作" }
         if let message = usage.message { text += "\n" + message }
         if let timestamp = usage.refreshedAt, let date = ISO8601DateFormatter().date(from: timestamp) {
             text += "\n更新于 " + date.formatted(date: .abbreviated, time: .shortened)
@@ -251,6 +258,7 @@ struct JunimoSurfaceView: View {
     }
 
     private var activitySummary: String {
+        if codexWorking { return "Codex 正在工作" }
         switch state.surfaceState.activity.status {
         case .loading:
             return "正在连接 Codex 任务"
@@ -272,4 +280,29 @@ struct JunimoSurfaceView: View {
         }
     }
 
+}
+
+private struct WorkingQuotaArc: View {
+    let fraction: CGFloat
+    let accent: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var spinning = false
+
+    var body: some View {
+        let gradient = AngularGradient(
+            stops: [
+                .init(color: accent.opacity(0.52), location: 0),
+                .init(color: accent, location: 0.65),
+                .init(color: Color(red: 0.80, green: 1, blue: 0.89), location: 1)
+            ],
+            center: .center, startAngle: .zero, endAngle: .degrees(360 * fraction)
+        )
+        Circle()
+            .trim(from: 0, to: fraction)
+            .stroke(gradient, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            .rotationEffect(.degrees(spinning && !reduceMotion ? 270 : -90))
+            .animation(reduceMotion ? nil : .linear(duration: 2.4).repeatForever(autoreverses: false),
+                       value: spinning && !reduceMotion)
+            .onAppear { spinning = true }
+    }
 }

@@ -10,6 +10,12 @@ final class JunimoPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+private final class NotchHostingView: NSHostingView<JunimoSurfaceView> {
+    override func menu(for event: NSEvent) -> NSMenu? {
+        super.menu(for: event) ?? menu
+    }
+}
+
 @MainActor
 final class NotchPanelController {
     private let state: ShellState
@@ -27,11 +33,11 @@ final class NotchPanelController {
         panel.isVisible
     }
 
-    convenience init(state: ShellState) {
-        self.init(state: state, quickLaunchStore: QuickLaunchConfigurationStore())
+    convenience init(state: ShellState, menu: NSMenu) {
+        self.init(state: state, menu: menu, quickLaunchStore: QuickLaunchConfigurationStore())
     }
 
-    init(state: ShellState, quickLaunchStore: QuickLaunchConfigurationStore) {
+    init(state: ShellState, menu: NSMenu, quickLaunchStore: QuickLaunchConfigurationStore) {
         self.state = state
         self.quickLaunchStore = quickLaunchStore
         quickLaunchStore.start()
@@ -50,9 +56,10 @@ final class NotchPanelController {
         panel.ignoresMouseEvents = false
         panel.animationBehavior = .none
         panel.level = topWindowLevel
-        panel.contentView = NSHostingView(
+        panel.contentView = NotchHostingView(
             rootView: JunimoSurfaceView(state: state, quickLaunchStore: quickLaunchStore)
         )
+        panel.contentView?.menu = menu
 
         state.expansionDidChange = { [weak self] expanded in
             // ShellState 已在主线程；同步调整窗口，避免大视图先在旧 frame 中短暂绘制。
@@ -91,7 +98,7 @@ final class NotchPanelController {
     }
 
     func expandAndShow() {
-        state.pointerEntered()
+        state.expand()
         show()
     }
 

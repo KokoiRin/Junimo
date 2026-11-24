@@ -56,6 +56,7 @@ type CompletionEvent struct {
 
 // Snapshot 是后端组合状态公开的 Codex 活动快照。
 type Snapshot struct {
+	IsWorking       bool             `json:"isWorking"`
 	Status          Status           `json:"status"`
 	CompletionEvent *CompletionEvent `json:"completionEvent,omitempty"`
 	Message         string           `json:"message,omitempty"`
@@ -63,6 +64,7 @@ type Snapshot struct {
 
 type scanner interface {
 	Scan(context.Context) ([]Thread, error)
+	IsWorking(context.Context) bool
 }
 
 // Monitor 负责启动基线、完成去重与适配器错误隔离。
@@ -101,10 +103,12 @@ func (monitor *Monitor) Snapshot() Snapshot {
 
 // Refresh 扫描新完成 turn；首次成功只建立基线，避免启动时重放历史通知。
 func (monitor *Monitor) Refresh(ctx context.Context) {
+	working := monitor.scanner.IsWorking(ctx)
 	threads, err := monitor.scanner.Scan(ctx)
 	now := monitor.now().Unix()
 	monitor.mu.Lock()
 	defer monitor.mu.Unlock()
+	monitor.snapshot.IsWorking = working
 	if err != nil {
 		monitor.snapshot.Status = StatusUnavailable
 		monitor.snapshot.Message = err.Error()
@@ -118,7 +122,8 @@ func (monitor *Monitor) Refresh(ctx context.Context) {
 		}
 		monitor.initialized = true
 		monitor.lastSuccessfulScanAt = now
-		monitor.snapshot = Snapshot{Status: StatusAvailable}
+		monitor.snapshot.Status = StatusAvailable
+		monitor.snapshot.Message = ""
 		return
 	}
 

@@ -5,15 +5,20 @@ import Foundation
 public final class ShellState: ObservableObject {
     @Published public private(set) var isExpanded = false
     @Published public private(set) var surfaceState = SurfaceState()
+    public private(set) var hoverExpansionEnabled: Bool
 
     public var expansionDidChange: ((Bool) -> Void)?
 
     private let backend: ShellBackendClient
+    private let defaults: UserDefaults
+    private static let hoverExpansionKey = "notch.hoverExpansionEnabled"
     private var refreshTask: Task<Void, Never>?
     private var latestRevision: UInt64?
 
-    public init(backend: ShellBackendClient = GoBackendClient()) {
+    public init(backend: ShellBackendClient = GoBackendClient(), defaults: UserDefaults = .standard) {
         self.backend = backend
+        self.defaults = defaults
+        hoverExpansionEnabled = defaults.object(forKey: Self.hoverExpansionKey) as? Bool ?? true
     }
 
     deinit {
@@ -43,7 +48,18 @@ public final class ShellState: ObservableObject {
     }
 
     public func pointerEntered() {
+        guard hoverExpansionEnabled else { return }
+        expand()
+    }
+
+    public func expand() {
         setExpanded(true)
+    }
+
+    public func toggleHoverExpansion() {
+        hoverExpansionEnabled.toggle()
+        defaults.set(hoverExpansionEnabled, forKey: Self.hoverExpansionKey)
+        if !hoverExpansionEnabled { setExpanded(false) }
     }
 
     public func pointerExited() {
@@ -61,7 +77,9 @@ public final class ShellState: ObservableObject {
             do {
                 accept(try await backend.loadState())
             } catch {
-                // 短暂传输失败不抹掉最后成功快照，下一轮继续读取。
+                if !Task.isCancelled, surfaceState.activity.isWorking == true {
+                    surfaceState.activity.isWorking = nil
+                }
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }

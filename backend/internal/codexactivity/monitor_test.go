@@ -14,6 +14,8 @@ type fakeScanner struct {
 	err     error
 }
 
+func (scanner *fakeScanner) IsWorking(context.Context) bool { return false }
+
 func (scanner *fakeScanner) Scan(context.Context) ([]Thread, error) {
 	scanner.mu.Lock()
 	defer scanner.mu.Unlock()

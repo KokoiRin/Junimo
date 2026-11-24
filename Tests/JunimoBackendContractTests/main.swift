@@ -23,7 +23,7 @@ guard CommandLine.arguments.count == 2 else {
 setenv("JUNIMO_BACKEND_EXECUTABLE", CommandLine.arguments[1], 1)
 
 Task {
-    // 真实 Swift client 启动 Go 后端后，应连续解码 v7 只读快照并观察到单调 revision。
+    // Swift 启动真实 Go 后端后，连续读取应得到递增的快照版本，并能读到 Codex 工作状态。
     let port = 46_000 + Int(getpid() % 1_000)
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("junimo-shortcuts-contract-\(UUID().uuidString)")
     setenv("JUNIMO_DATA_DIR", directory.path, 1)
@@ -36,6 +36,7 @@ Task {
 
         try expect(first.revision > 0, "initial state should carry a positive revision")
         try expect(second.revision > first.revision, "later state should carry a newer revision")
+        try expect(first.activity.isWorking != nil, "backend must include Codex working status")
         try expect(
             [.loading, .available, .unavailable].contains(first.codex.status),
             "Codex usage should decode a declared availability state"
