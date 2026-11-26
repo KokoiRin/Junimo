@@ -7,6 +7,7 @@ Junimo 让你不打开 Codex 也能快速看到剩余用量。任务完成时，
 ## 你能用它做什么
 
 - 在刘海旁并排查看 Codex 和 Grok Bot 剩余用量。
+- 打开 Antigravity 时，第三个紫色圆环显示 Gemini Models 的每周剩余额度，工作时旋转。展开面板可看到具体百分比。Junimo 每分钟从正在运行的 Antigravity 桌面端刷新一次。
 - Codex 任务完成时播放 `Hero` 提示音，不必一直盯着窗口。
 - 点击完成横幅，直接回到对应的 Codex 任务。
 - 展开面板后查看任务提醒是否可用，以及最近完成的任务。
@@ -53,6 +54,10 @@ scripts/build_app.sh
 ditto .build/app/Junimo.app /Applications/Junimo.app
 open /Applications/Junimo.app
 ```
+
+### Antigravity 完成提醒
+
+将 Junimo 安装到 `/Applications/Junimo.app` 后，把 [Junimo 的 Stop 配置](integrations/antigravity/hooks.json) 中的 `junimo-completion` 条目加入 `~/.gemini/config/hooks.json`。该文件尚不存在时，可直接将示例复制到该位置。任务正常结束且后台工作都已完成时，Junimo 会播放提示音并显示任务标题。点击横幅可打开 Antigravity。
 
 ## 下载已构建版本
 

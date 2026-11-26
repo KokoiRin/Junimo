@@ -77,8 +77,10 @@ public final class ShellState: ObservableObject {
             do {
                 accept(try await backend.loadState())
             } catch {
-                if !Task.isCancelled, surfaceState.activity.isWorking == true {
-                    surfaceState.activity.isWorking = nil
+                if !Task.isCancelled {
+                    if surfaceState.activity.isWorking == true { surfaceState.activity.isWorking = nil }
+                    if surfaceState.antigravity?.isAppRunning != nil { surfaceState.antigravity?.isAppRunning = nil }
+                    if surfaceState.antigravity?.isWorking != nil { surfaceState.antigravity?.isWorking = nil }
                 }
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)

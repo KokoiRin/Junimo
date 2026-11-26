@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CoreGraphics
 import JunimoCore
 import QuartzCore
@@ -21,7 +22,8 @@ final class NotchPanelController {
     private let state: ShellState
     private let quickLaunchStore: QuickLaunchConfigurationStore
     private let panel: JunimoPanel
-    private let panelWidth = JunimoPanelLayout.collapsedWidth
+    private var laneWidth = JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: false)
+    private var laneObservation: AnyCancellable?
     private let expandedSize = NSSize(
         width: JunimoPanelLayout.expandedWidth,
         height: JunimoPanelLayout.expandedHeight
@@ -65,6 +67,15 @@ final class NotchPanelController {
             // ShellState 已在主线程；同步调整窗口，避免大视图先在旧 frame 中短暂绘制。
             self?.resize(expanded: expanded)
         }
+
+        laneObservation = state.$surfaceState
+            .map { JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: $0.showsAntigravity) }
+            .removeDuplicates()
+            .sink { [weak self] width in
+                guard let self, laneWidth != width else { return }
+                laneWidth = width
+                if !state.isExpanded { resize(expanded: false) }
+            }
 
         screenChangeObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -130,7 +141,7 @@ final class NotchPanelController {
         let screenFrame = screen.frame
         let size = size(on: screen, expanded: expanded)
         return NSRect(
-            x: expanded ? screenFrame.midX - size.width / 2 : screenFrame.midX - JunimoScreenGeometry.notchClearance(on: screen) - JunimoPanelLayout.collapsedCapsuleLaneWidth,
+            x: expanded ? screenFrame.midX - size.width / 2 : screenFrame.midX - JunimoScreenGeometry.notchClearance(on: screen) - laneWidth,
             y: screenFrame.maxY - size.height,
             width: size.width,
             height: size.height
@@ -140,10 +151,10 @@ final class NotchPanelController {
     private func size(on screen: NSScreen?, expanded: Bool) -> NSSize {
         guard !expanded else { return expandedSize }
         guard let screen else {
-            return NSSize(width: panelWidth, height: NotchPanelMetrics.minimumCollapsedHeight)
+            return NSSize(width: laneWidth + JunimoPanelLayout.collapsedNotchClearance * 2, height: NotchPanelMetrics.minimumCollapsedHeight)
         }
         return NSSize(
-            width: JunimoPanelLayout.collapsedCapsuleLaneWidth + JunimoScreenGeometry.notchClearance(on: screen) * 2,
+            width: laneWidth + JunimoScreenGeometry.notchClearance(on: screen) * 2,
             height: NotchPanelMetrics.collapsedHeight(
                 screenTop: screen.frame.maxY,
                 visibleTop: screen.visibleFrame.maxY

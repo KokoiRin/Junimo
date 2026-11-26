@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lifecycleWindow: NSWindow?
     private var activityObservation: AnyCancellable?
     private var completionNotificationGate = CodexCompletionNotificationGate()
+    private var deliveredAntigravityIDs: [String] = []
     private let notificationService = MacCodexCompletionNotificationService()
     private var allowsTermination = false
     private var pendingReopen = false
@@ -24,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let backend = GoBackendClient()
         let state = ShellState(backend: backend)
         shellState = state
-        observeCodexCompletion(in: state)
+        observeCompletions(in: state)
         state.start()
         deliverNotificationProbeIfRequested()
 
@@ -107,13 +108,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.items.first { $0.action == #selector(toggleAppBar) }?.state = presentation.enabled ? .on : .off
     }
 
-    // observeCodexCompletion 只消费 Go 稳定完成事件，重复 state 轮询不会重复投递。
-    private func observeCodexCompletion(in state: ShellState) {
+    // observeCompletions 只消费 Go 稳定完成事件，重复 state 轮询不会重复投递。
+    private func observeCompletions(in state: ShellState) {
         activityObservation = state.$surfaceState
-            .map(\.activity.completionEvent)
-            .sink { [weak self] event in
-                guard let self, let event = completionNotificationGate.observe(event) else { return }
-                notificationService.notifyCompletion(event)
+            .sink { [weak self] snapshot in
+                guard let self else { return }
+                if let event = completionNotificationGate.observe(snapshot.activity.completionEvent) {
+                    notificationService.notifyCompletion(event)
+                }
+                for event in snapshot.antigravity?.events ?? [] where !deliveredAntigravityIDs.contains(event.id) {
+                    deliveredAntigravityIDs.append(event.id)
+                    notificationService.notifyAntigravityCompletion(event)
+                }
+                if deliveredAntigravityIDs.count > 512 {
+                    deliveredAntigravityIDs.removeFirst(deliveredAntigravityIDs.count - 512)
+                }
             }
     }
 

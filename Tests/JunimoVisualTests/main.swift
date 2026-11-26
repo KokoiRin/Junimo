@@ -92,7 +92,7 @@ func testCompanionKeepsReadableTypography() {
 // 折叠态应在刘海左侧画出用量胶囊、中央触发区保持视觉透明，右侧交给独立应用栏而不保留旧入口。
 @MainActor
 func testCollapsedControlsKeepNotchTriggerClear() {
-    let size = CGSize(width: JunimoPanelLayout.collapsedCapsuleLaneWidth + JunimoPanelLayout.collapsedNotchClearance * 2, height: 33)
+    let size = CGSize(width: JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: false) + JunimoPanelLayout.collapsedNotchClearance * 2, height: 33)
     let state = ShellState()
     let bitmap = render(
         JunimoSurfaceView(state: state, launcher: QuickLauncher(workspace: VisualFakeWorkspace()))
@@ -100,9 +100,9 @@ func testCollapsedControlsKeepNotchTriggerClear() {
         size: size
     )
     let scale = CGFloat(bitmap.pixelsWide) / size.width
-    let leftEnd = Int(JunimoPanelLayout.collapsedCapsuleLaneWidth * scale)
+    let leftEnd = Int(JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: false) * scale)
     let rightStart = Int(
-        (JunimoPanelLayout.collapsedCapsuleLaneWidth + JunimoPanelLayout.collapsedNotchClearance * 2) * scale
+        (JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: false) + JunimoPanelLayout.collapsedNotchClearance * 2) * scale
     )
     var leftVisible = 0
     var centerVisible = 0
@@ -376,10 +376,18 @@ func testSwipePermissionRecovery() {
 }
 
 final class UsageVisualBackend: ShellBackendClient {
+    let appOpen: Bool
+    let working: Bool
+
+    init(appOpen: Bool, working: Bool) {
+        self.appOpen = appOpen
+        self.working = working
+    }
     func start() async throws {}
     func stop() {}
     func loadState() async throws -> SurfaceState {
         SurfaceState(revision: 1,
+            antigravity: AntigravitySnapshot(isAppRunning: appOpen, isWorking: working, weeklyQuota: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 92, windowDurationMinutes: 10080))),
             codex: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 100, windowDurationMinutes: 10080)),
             grok: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 100, windowDurationMinutes: 10080)),
             activity: CodexActivitySnapshot(status: .available, completionEvent: CodexCompletionEvent(
@@ -389,10 +397,10 @@ final class UsageVisualBackend: ShellBackendClient {
     }
 }
 
-// 两个来源都剩余 100% 且最近任务标题很长时，折叠仅显示双色圆环，展开应完整显示百分比并保留中央刘海净空。
+// Antigravity 打开时紫环在空闲和工作时都可见，退出后即使仍有额度缓存也只显示绿蓝两环，折叠和展开的表现一致。
 @MainActor
-func testBothUsageRingsRender() async {
-    let state = ShellState(backend: UsageVisualBackend())
+func testUsageRingsRender(appOpen: Bool, working: Bool) async {
+    let state = ShellState(backend: UsageVisualBackend(appOpen: appOpen, working: working))
     state.start()
     defer { state.stop() }
     for _ in 0..<100 {
@@ -401,21 +409,25 @@ func testBothUsageRingsRender() async {
     }
     guard state.surfaceState.grok.status == .available else { fail("usage fixture did not load") }
     for expanded in [false, true] {
-        if expanded { state.pointerEntered() }
+        if expanded { state.expand() }
         let size = expanded
             ? CGSize(width: JunimoPanelLayout.expandedWidth, height: JunimoPanelLayout.expandedHeight)
-            : CGSize(width: JunimoPanelLayout.collapsedCapsuleLaneWidth + JunimoPanelLayout.collapsedNotchClearance * 2, height: 33)
+            : CGSize(width: JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: appOpen) + JunimoPanelLayout.collapsedNotchClearance * 2, height: 33)
         let bitmap = render(JunimoSurfaceView(state: state, launcher: QuickLauncher(workspace: VisualFakeWorkspace())).frame(width: size.width, height: size.height), size: size)
         var green = 0
         var blue = 0
+        var purple = 0
         for x in 0..<bitmap.pixelsWide {
             for y in 0..<bitmap.pixelsHigh {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB), color.alphaComponent > 0.5 else { continue }
                 if color.greenComponent > 0.65 && color.redComponent < 0.45 && color.blueComponent < 0.7 { green += 1 }
+                if color.redComponent > 0.5 && color.redComponent > color.greenComponent + 0.05 && color.blueComponent > color.redComponent + 0.06 { purple += 1 }
                 if color.blueComponent > 0.75 && color.redComponent < 0.6 && color.greenComponent > 0.5 && color.greenComponent < 0.85 { blue += 1 }
             }
         }
         guard green > 8 && blue > 8 else { fail("both usage colors should be visible: green=\(green) blue=\(blue)") }
+        guard appOpen ? purple > 3 : purple == 0 else { fail("unexpected Antigravity ring visibility") }
+        guard appOpen && working else { continue }
         let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/direct/usage-\(expanded ? "expanded" : "collapsed").png")
         guard let png = bitmap.representation(using: .png, properties: [:]) else { fail("usage preview could not encode") }
         do { try png.write(to: path) } catch { fail("usage preview could not save") }
@@ -423,7 +435,9 @@ func testBothUsageRingsRender() async {
 }
 
 Task { @MainActor in
-    await testBothUsageRingsRender()
+    await testUsageRingsRender(appOpen: false, working: false)
+    await testUsageRingsRender(appOpen: true, working: false)
+    await testUsageRingsRender(appOpen: true, working: true)
     testSwipePermissionRecovery()
     testCommandSwipeConsumesOneGesture()
     testCommandSwipeLeavesOtherInputAlone()

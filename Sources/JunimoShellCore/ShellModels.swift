@@ -87,8 +87,29 @@ public struct CodexActivitySnapshot: Codable, Equatable {
     }
 }
 
+public struct AntigravityCompletion: Codable, Equatable {
+    public let id: String
+    public let title: String
+}
+
+public struct AntigravitySnapshot: Codable, Equatable {
+    public var isAppRunning: Bool?
+    public var isWorking: Bool?
+    public var weeklyQuota: CodexUsageSnapshot?
+    public var events: [AntigravityCompletion]?
+
+    public init(isAppRunning: Bool?, isWorking: Bool?, weeklyQuota: CodexUsageSnapshot? = nil, events: [AntigravityCompletion]? = nil) {
+        self.isWorking = isWorking
+        self.isAppRunning = isAppRunning
+        self.weeklyQuota = weeklyQuota
+        self.events = events
+    }
+}
+
 // SurfaceState 是协议 v7 的完整只读组合快照。
 public struct SurfaceState: Codable, Equatable {
+    public var showsAntigravity: Bool { antigravity?.isAppRunning == true }
+    public var antigravity: AntigravitySnapshot?
     public var revision: UInt64
     public var codex: CodexUsageSnapshot
     public var grok: CodexUsageSnapshot
@@ -96,10 +117,12 @@ public struct SurfaceState: Codable, Equatable {
 
     public init(
         revision: UInt64 = 0,
+        antigravity: AntigravitySnapshot? = nil,
         codex: CodexUsageSnapshot = CodexUsageSnapshot(),
         grok: CodexUsageSnapshot = CodexUsageSnapshot(),
         activity: CodexActivitySnapshot = CodexActivitySnapshot()
     ) {
+        self.antigravity = antigravity
         self.revision = revision
         self.codex = codex
         self.grok = grok

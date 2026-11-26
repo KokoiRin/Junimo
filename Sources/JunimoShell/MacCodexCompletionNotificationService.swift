@@ -10,14 +10,34 @@ final class MacCodexCompletionNotificationService {
     private var bannerPanel: NSPanel?
     private var dismissWorkItem: DispatchWorkItem?
 
+    private struct Banner {
+        let heading: String
+        let title: String
+        let open: () -> Void
+    }
+    private var pending: [Banner] = []
+
     func notifyCompletion(_ event: CodexCompletionEvent) {
-        NSSound(named: NSSound.Name("Hero"))?.play()
-        presentBanner(for: event)
+        enqueue(Banner(heading: "任务完成", title: event.title) { [weak self] in
+            self?.openCodexTask(threadID: event.threadId)
+        })
     }
 
-    private func presentBanner(for event: CodexCompletionEvent) {
-        dismissWorkItem?.cancel()
-        bannerPanel?.close()
+    func notifyAntigravityCompletion(_ event: AntigravityCompletion) {
+        enqueue(Banner(heading: "Antigravity 任务完成", title: event.title) { [weak self] in
+            _ = self?.workspace.openApplication(bundleIdentifier: "com.google.antigravity")
+        })
+    }
+
+    private func enqueue(_ banner: Banner) {
+        pending.append(banner)
+        showNextBanner()
+    }
+
+    private func showNextBanner() {
+        guard bannerPanel == nil, !pending.isEmpty else { return }
+        let banner = pending.removeFirst()
+        NSSound(named: NSSound.Name("Hero"))?.play()
 
         let panel = NSPanel(
             contentRect: .zero,
@@ -37,9 +57,12 @@ final class MacCodexCompletionNotificationService {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
 
         let view = CodexCompletionBanner(
-            taskTitle: event.title.isEmpty ? "未命名任务" : event.title,
-            openTask: { [weak self] in
-                self?.openCodexTask(threadID: event.threadId)
+            heading: banner.heading,
+            taskTitle: banner.title.isEmpty ? "未命名任务" : banner.title,
+            openTask: { [weak self, weak panel] in
+                guard let self, let panel, panel === self.bannerPanel else { return }
+                self.dismiss(panel)
+                banner.open()
             }
         )
         panel.contentView = FirstClickHostingView(rootView: view)
@@ -76,11 +99,6 @@ final class MacCodexCompletionNotificationService {
     }
 
     private func openCodexTask(threadID: String) {
-        dismissWorkItem?.cancel()
-        if let panel = bannerPanel {
-            dismiss(panel)
-        }
-
         if let taskURL = CodexTaskLink.url(threadID: threadID), workspace.openURL(taskURL) {
             return
         }
@@ -90,13 +108,17 @@ final class MacCodexCompletionNotificationService {
     private func dismiss(_ panel: NSPanel) {
         dismissWorkItem?.cancel()
         dismissWorkItem = nil
-        bannerPanel = nil
+        panel.ignoresMouseEvents = true
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.14
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
-        }, completionHandler: {
-            panel.close()
+        }, completionHandler: { [weak self] in
+            Task { @MainActor in
+                panel.close()
+                self?.bannerPanel = nil
+                self?.showNextBanner()
+            }
         })
     }
 }
@@ -106,6 +128,7 @@ private final class FirstClickHostingView<Content: View>: NSHostingView<Content>
 }
 
 private struct CodexCompletionBanner: View {
+    let heading: String
     let taskTitle: String
     let openTask: () -> Void
 
@@ -122,7 +145,7 @@ private struct CodexCompletionBanner: View {
                 .frame(width: 31, height: 31)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("任务完成")
+                    Text(heading)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.92))
                     Text(taskTitle)

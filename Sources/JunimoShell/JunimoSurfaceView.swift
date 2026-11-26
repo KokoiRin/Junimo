@@ -77,6 +77,12 @@ struct JunimoSurfaceView: View {
                         .help(error)
                 }
                 Spacer()
+                if state.surfaceState.showsAntigravity {
+                    antigravityRing
+                    Text(antigravitySummary)
+                        .font(.system(size: JunimoTypography.caption, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.62))
+                }
             }
             .padding(.bottom, 10)
 
@@ -115,6 +121,33 @@ struct JunimoSurfaceView: View {
             }
             .frame(height: 74)
         }
+    }
+
+    private let antigravityAccent = Color(red: 0.78, green: 0.60, blue: 1)
+    private var antigravitySummary: String {
+        let activity = state.surfaceState.antigravity?.isWorking.map { $0 ? "正在工作" : "空闲" } ?? "状态未知"
+        let weekly = state.surfaceState.antigravity?.weeklyQuota
+        let remaining = weekly?.primary == nil ? "未知" : weekly?.compactSummary ?? "未知"
+        return "Antigravity " + activity + " · Gemini 周额度剩余 " + remaining
+    }
+
+    private var antigravityRing: some View {
+        Group {
+            if let weekly = state.surfaceState.antigravity?.weeklyQuota, weekly.status == .available {
+                usageRing(weekly, accent: antigravityAccent, working: state.surfaceState.antigravity?.isWorking == true)
+            } else {
+                ZStack {
+                    Circle().stroke(antigravityAccent.opacity(0.38), lineWidth: 2)
+                    if state.surfaceState.antigravity?.isWorking == true {
+                        WorkingQuotaArc(fraction: 0.35, accent: antigravityAccent)
+                    }
+                }
+            }
+        }
+        .frame(width: 12, height: 12)
+        .help(antigravitySummary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(antigravitySummary)
     }
 
     private let grokAccent = Color(red: 0.42, green: 0.72, blue: 1)
@@ -166,12 +199,13 @@ struct JunimoSurfaceView: View {
     }
 
     private var collapsed: some View {
-        HStack(spacing: 0) {
+        let laneWidth = JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: state.surfaceState.showsAntigravity)
+        return HStack(spacing: 0) {
             agentUsageCapsule
-                .frame(width: JunimoPanelLayout.collapsedCapsuleLaneWidth, alignment: .trailing)
+                .frame(width: laneWidth, alignment: .trailing)
             notchHoverTrigger
         }
-        .frame(width: JunimoPanelLayout.collapsedCapsuleLaneWidth + notchClearance * 2)
+        .frame(width: laneWidth + notchClearance * 2)
         .frame(maxHeight: .infinity)
         .background(Color.black.opacity(0.001))
         .contentShape(Rectangle())
@@ -193,6 +227,7 @@ struct JunimoSurfaceView: View {
         HStack(spacing: 12) {
             compactUsage(name: "Codex", usage: state.surfaceState.codex, accent: junimoAccent, working: codexWorking)
             compactUsage(name: "Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
+            if state.surfaceState.showsAntigravity { antigravityRing }
         }
         .padding(.horizontal, 10)
         .frame(height: 28)

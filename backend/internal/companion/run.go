@@ -6,8 +6,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
+	"junimo/backend/internal/antigravity"
 	"junimo/backend/internal/codexactivity"
 	"junimo/backend/internal/codexappserver"
 	"junimo/backend/internal/codexusage"
@@ -40,6 +42,19 @@ func Run(ctx context.Context) error {
 	grokMonitor.Start(monitorContext, usageRefreshInterval, usageQueryTimeout)
 	activityMonitor.Start(monitorContext, activityRefreshInterval, activityQueryTimeout)
 
+	var gravitySnapshot func() antigravity.Snapshot
+	if home, err := os.UserHomeDir(); err == nil {
+		gravity := antigravity.NewMonitor(antigravity.DesktopSource(home))
+		quota := codexusage.NewMonitor(antigravity.WeeklyQuota{DaemonDir: filepath.Join(home, ".gemini", "antigravity", "daemon")})
+		quota.Start(monitorContext, time.Minute, 8*time.Second)
+		gravitySnapshot = func() antigravity.Snapshot {
+			snapshot := gravity.Snapshot()
+			weekly := quota.Snapshot()
+			snapshot.WeeklyQuota = &weekly
+			return snapshot
+		}
+		go gravity.Run(monitorContext)
+	}
 	port := os.Getenv("JUNIMO_BACKEND_PORT")
 	if port == "" {
 		port = defaultPort
@@ -47,7 +62,7 @@ func Run(ctx context.Context) error {
 	address := "127.0.0.1:" + port
 	server := &http.Server{
 		Addr:    address,
-		Handler: newHandlerWithGrok(usageMonitor.Snapshot, activityMonitor.Snapshot, grokMonitor.Snapshot),
+		Handler: newSurfaceHandler(usageMonitor.Snapshot, activityMonitor.Snapshot, grokMonitor.Snapshot, gravitySnapshot),
 	}
 	serverErrors := make(chan error, 1)
 	go func() {

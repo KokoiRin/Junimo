@@ -1,0 +1,11 @@
+{
+  "junimo-completion": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "/Applications/Junimo.app/Contents/MacOS/junimo-backend antigravity-stop",
+        "timeout": 2
+      }
+    ]
+  }
+}

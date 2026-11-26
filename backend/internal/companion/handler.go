@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 
+	"junimo/backend/internal/antigravity"
 	"junimo/backend/internal/codexactivity"
 	"junimo/backend/internal/codexusage"
 )
@@ -21,18 +22,20 @@ type healthResponse struct {
 
 // state 组合独立的 Codex、Grok 用量与 Codex 完成事实。
 type state struct {
-	mu               sync.Mutex
-	usageSnapshot    func() codexusage.Snapshot
-	grokSnapshot     func() codexusage.Snapshot
-	activitySnapshot func() codexactivity.Snapshot
-	revision         uint64
+	mu                  sync.Mutex
+	usageSnapshot       func() codexusage.Snapshot
+	grokSnapshot        func() codexusage.Snapshot
+	activitySnapshot    func() codexactivity.Snapshot
+	antigravitySnapshot func() antigravity.Snapshot
+	revision            uint64
 }
 
 type stateResponse struct {
-	Revision uint64                 `json:"revision"`
-	Codex    codexusage.Snapshot    `json:"codex"`
-	Grok     codexusage.Snapshot    `json:"grok"`
-	Activity codexactivity.Snapshot `json:"activity"`
+	Antigravity antigravity.Snapshot   `json:"antigravity"`
+	Revision    uint64                 `json:"revision"`
+	Codex       codexusage.Snapshot    `json:"codex"`
+	Grok        codexusage.Snapshot    `json:"grok"`
+	Activity    codexactivity.Snapshot `json:"activity"`
 }
 
 // snapshot 为一次组合读取分配严格递增的时序号。
@@ -41,10 +44,11 @@ func (state *state) snapshot() stateResponse {
 	defer state.mu.Unlock()
 	state.revision++
 	return stateResponse{
-		Revision: state.revision,
-		Codex:    state.usageSnapshot(),
-		Grok:     state.grokSnapshot(),
-		Activity: state.activitySnapshot(),
+		Revision:    state.revision,
+		Antigravity: state.antigravitySnapshot(),
+		Codex:       state.usageSnapshot(),
+		Grok:        state.grokSnapshot(),
+		Activity:    state.activitySnapshot(),
 	}
 }
 
@@ -54,10 +58,10 @@ func newHandler(
 	activityProvider func() codexactivity.Snapshot,
 	stores ...*shortcutStore,
 ) http.Handler {
-	return newHandlerWithGrok(usageProvider, activityProvider, nil, stores...)
+	return newSurfaceHandler(usageProvider, activityProvider, nil, nil, stores...)
 }
 
-func newHandlerWithGrok(usageProvider func() codexusage.Snapshot, activityProvider func() codexactivity.Snapshot, grokProvider func() codexusage.Snapshot, stores ...*shortcutStore) http.Handler {
+func newSurfaceHandler(usageProvider func() codexusage.Snapshot, activityProvider func() codexactivity.Snapshot, grokProvider func() codexusage.Snapshot, gravityProvider func() antigravity.Snapshot, stores ...*shortcutStore) http.Handler {
 	if usageProvider == nil {
 		usageProvider = func() codexusage.Snapshot {
 			return codexusage.Snapshot{Status: codexusage.StatusLoading}
@@ -71,7 +75,10 @@ func newHandlerWithGrok(usageProvider func() codexusage.Snapshot, activityProvid
 	if grokProvider == nil {
 		grokProvider = func() codexusage.Snapshot { return codexusage.Snapshot{Status: codexusage.StatusLoading} }
 	}
-	current := &state{usageSnapshot: usageProvider, activitySnapshot: activityProvider, grokSnapshot: grokProvider}
+	if gravityProvider == nil {
+		gravityProvider = func() antigravity.Snapshot { return antigravity.Snapshot{} }
+	}
+	current := &state{antigravitySnapshot: gravityProvider, usageSnapshot: usageProvider, activitySnapshot: activityProvider, grokSnapshot: grokProvider}
 	mux := http.NewServeMux()
 	instanceID := os.Getenv("JUNIMO_INSTANCE_ID")
 	store := newShortcutStore()

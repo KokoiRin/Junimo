@@ -80,23 +80,23 @@ func TestStateContainsOnlyUsageAndActivity(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
 	}
-	for _, key := range []string{"revision", "codex", "grok", "activity"} {
+	for _, key := range []string{"revision", "codex", "grok", "activity", "antigravity"} {
 		if _, exists := current[key]; !exists {
 			t.Fatalf("state missing %q: %s", key, response.Body.String())
 		}
 	}
-	if len(current) != 4 {
-		t.Fatalf("state fields = %v, want exactly revision, codex, grok, activity", current)
+	if len(current) != 5 {
+		t.Fatalf("state fields = %v, want exactly revision, codex, grok, activity, antigravity", current)
 	}
 }
 
 // Codex 不可用而 Grok 仍有周额度时，状态接口必须保留 Grok 的独立百分比、来源与时间，不把失败扩散到另一个来源。
 func TestGrokUsageIsIndependent(t *testing.T) {
-	handler := newHandlerWithGrok(
+	handler := newSurfaceHandler(
 		func() codexusage.Snapshot { return codexusage.Snapshot{Status: codexusage.StatusUnavailable} }, nil,
 		func() codexusage.Snapshot {
 			return codexusage.Snapshot{Status: codexusage.StatusAvailable, Primary: &codexusage.Window{RemainingPercent: 15, WindowDurationMinutes: 10080}, Message: "本机缓存", RefreshedAt: "2026-11-06T15:59:00Z"}
-		},
+		}, nil,
 	)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/state", nil))

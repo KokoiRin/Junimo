@@ -8,8 +8,9 @@ let junimoPanelBlack = Color(red: 0.006, green: 0.007, blue: 0.008)
 enum JunimoPanelLayout {
     // collapsedNotchClearance 包含半个刘海宽度与不贴边的安全间隔，决定胶囊内边缘到屏幕中心的距离。
     static let collapsedNotchClearance: CGFloat = 102
-    static let collapsedCapsuleLaneWidth: CGFloat = 64
-    static let collapsedWidth: CGFloat = collapsedCapsuleLaneWidth + collapsedNotchClearance * 2
+    static func collapsedCapsuleLaneWidth(showsAntigravity: Bool) -> CGFloat {
+        showsAntigravity ? 88 : 64
+    }
     static let expandedWidth: CGFloat = 560
     static let expandedHeight: CGFloat = 260
 }
