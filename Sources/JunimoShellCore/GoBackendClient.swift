@@ -1,9 +1,18 @@
 import Foundation
 
 public protocol ShellBackendClient: AnyObject {
+    var supportsLongPolling: Bool { get }
     func start() async throws
     func stop()
     func loadState() async throws -> SurfaceState
+    func waitForStateChange() async throws -> SurfaceState?
+}
+
+public extension ShellBackendClient {
+    var supportsLongPolling: Bool { false }
+    func waitForStateChange() async throws -> SurfaceState? {
+        try await loadState()
+    }
 }
 
 public final class GoBackendClient: ShellBackendClient, AppShortcutsBackend {
@@ -14,9 +23,16 @@ public final class GoBackendClient: ShellBackendClient, AppShortcutsBackend {
     }
 
     private static let supportedProtocolVersion = 7
+    private static let longPollWaitMilliseconds = 25_000
+    private static let longPollRequestTimeout: TimeInterval = 35
+    private static let stateVersionHeader = "X-Junimo-State-Version"
     private let port: Int
+    private let stateVersionLock = NSLock()
+    private var lastStateVersion: UInt64?
     private var process: Process?
     private var instanceID: String?
+
+    public var supportsLongPolling: Bool { true }
 
     public init(port: Int = 44832) {
         self.port = port
@@ -43,6 +59,7 @@ public final class GoBackendClient: ShellBackendClient, AppShortcutsBackend {
         ]) { _, new in new }
         self.process = process
         self.instanceID = instanceID
+        setLastStateVersion(nil)
         do {
             try process.run()
             try await waitUntilHealthy()
@@ -59,17 +76,64 @@ public final class GoBackendClient: ShellBackendClient, AppShortcutsBackend {
         }
         process = nil
         instanceID = nil
+        setLastStateVersion(nil)
     }
 
     public func loadState() async throws -> SurfaceState {
         guard process?.isRunning == true else { throw BackendError.backendExited }
         let (data, response) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("state"))
         try validate(response)
+        recordStateVersion(from: response)
+        return try JSONDecoder().decode(SurfaceState.self, from: data)
+    }
+
+    public func waitForStateChange() async throws -> SurfaceState? {
+        guard let after = currentStateVersion() else {
+            return try await loadState()
+        }
+        guard process?.isRunning == true else { throw BackendError.backendExited }
+        var components = URLComponents(url: baseURL.appendingPathComponent("state"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "after", value: "\(after)"),
+            URLQueryItem(name: "wait", value: "\(Self.longPollWaitMilliseconds)")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = Self.longPollRequestTimeout
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode == 304 {
+            try validateInstance(http)
+            recordStateVersion(from: http)
+            return nil
+        }
+        try validate(response)
+        recordStateVersion(from: response)
         return try JSONDecoder().decode(SurfaceState.self, from: data)
     }
 
     public func loadAppShortcuts() async throws -> AppShortcutList {
         try await requestShortcuts(items: nil)
+    }
+
+    public func waitForAppShortcutsChange(after revision: UInt64) async throws -> AppShortcutList? {
+        guard process?.isRunning == true else { throw BackendError.backendExited }
+        var components = URLComponents(url: baseURL.appendingPathComponent("app-shortcuts"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "after", value: "\(revision)"),
+            URLQueryItem(name: "wait", value: "\(Self.longPollWaitMilliseconds)")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = Self.longPollRequestTimeout
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode == 304 {
+            try validateInstance(http)
+            return nil
+        }
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            try validateInstance(http)
+            throw AppShortcutError.message(String(data: data, encoding: .utf8) ?? "常用应用请求失败")
+        }
+        try validate(response)
+        return try JSONDecoder().decode(AppShortcutList.self, from: data)
     }
 
     public func saveAppShortcuts(_ items: [AppShortcut], revision: UInt64) async throws -> AppShortcutList {
@@ -153,9 +217,34 @@ public final class GoBackendClient: ShellBackendClient, AppShortcutsBackend {
         guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
             throw BackendError.invalidResponse
         }
+        try validateInstance(http)
+    }
+
+    private func validateInstance(_ http: HTTPURLResponse) throws {
         guard let instanceID, http.value(forHTTPHeaderField: "X-Junimo-Instance-ID") == instanceID else {
             throw BackendError.instanceMismatch
         }
+    }
+
+    private func currentStateVersion() -> UInt64? {
+        stateVersionLock.lock()
+        defer { stateVersionLock.unlock() }
+        return lastStateVersion
+    }
+
+    private func setLastStateVersion(_ version: UInt64?) {
+        stateVersionLock.lock()
+        lastStateVersion = version
+        stateVersionLock.unlock()
+    }
+
+    private func recordStateVersion(from response: URLResponse) {
+        guard let http = response as? HTTPURLResponse,
+              let raw = http.value(forHTTPHeaderField: Self.stateVersionHeader),
+              let parsed = UInt64(raw) else {
+            return
+        }
+        setLastStateVersion(parsed)
     }
 
     private func backendExecutableURL() -> URL? {

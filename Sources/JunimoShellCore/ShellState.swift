@@ -98,8 +98,14 @@ public final class ShellState: ObservableObject {
             }
 
             do {
-                accept(try await backend.loadState())
-                try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
+                if backend.supportsLongPolling {
+                    if let snapshot = try await backend.waitForStateChange() {
+                        accept(snapshot)
+                    }
+                } else {
+                    accept(try await backend.loadState())
+                    try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 clearTransientWorkingState()

@@ -1,6 +1,7 @@
 package companion
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 type appShortcut struct {
@@ -28,6 +30,7 @@ type shortcutStore struct {
 	mu        sync.Mutex
 	directory string
 	current   *appShortcuts
+	changed   chan struct{}
 }
 
 var bundleIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$`)
@@ -177,11 +180,72 @@ func (s *shortcutStore) persist(value appShortcuts) error {
 		return err
 	}
 	s.current = &value
+	if s.changed != nil {
+		close(s.changed)
+		s.changed = nil
+	}
 	return nil
 }
 
-func registerShortcuts(mux *http.ServeMux, store *shortcutStore, instanceID string) {
+// waitForChange 等待收藏版本离开 after，或直到超时、请求取消、服务关闭。
+func (s *shortcutStore) waitForChange(ctx context.Context, shutdown <-chan struct{}, after uint64, timeout time.Duration) (appShortcuts, bool, error) {
+	s.mu.Lock()
+	current, err := s.loadLocked()
+	if err != nil {
+		s.mu.Unlock()
+		return appShortcuts{}, false, err
+	}
+	if current.Revision != after {
+		s.mu.Unlock()
+		return current, true, nil
+	}
+	if s.changed == nil {
+		s.changed = make(chan struct{})
+	}
+	ch := s.changed
+	s.mu.Unlock()
+
+	if timeout <= 0 {
+		return current, false, nil
+	}
+	timer := time.NewTimer(timeout)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+
+	select {
+	case <-ch:
+		updated, err := s.load()
+		return updated, err == nil && updated.Revision != after, err
+	case <-timer.C:
+		return current, false, nil
+	case <-ctx.Done():
+		return current, false, nil
+	case <-shutdown:
+		return current, false, nil
+	}
+}
+
+func registerShortcuts(mux *http.ServeMux, store *shortcutStore, instanceID string, shutdown <-chan struct{}) {
 	mux.HandleFunc("GET /app-shortcuts", func(w http.ResponseWriter, r *http.Request) {
+		if after, hasAfter := parseAfterQuery(r); hasAfter {
+			value, changed, err := store.waitForChange(r.Context(), shutdown, after, parseWaitQuery(r))
+			if err != nil {
+				http.Error(w, "读取常用应用失败："+err.Error(), 500)
+				return
+			}
+			if !changed {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			writeJSON(w, value)
+			return
+		}
 		value, err := store.load()
 		if err != nil {
 			http.Error(w, "读取常用应用失败："+err.Error(), 500)

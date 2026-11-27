@@ -1,10 +1,12 @@
 package companion
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"junimo/backend/internal/codexactivity"
 	"junimo/backend/internal/quota"
@@ -106,5 +108,78 @@ func TestGrokUsageIsIndependent(t *testing.T) {
 	}
 	if current.Codex.Status != quota.StatusUnavailable || current.Grok.Status != quota.StatusAvailable || current.Grok.Primary == nil || current.Grok.Primary.RemainingPercent != 15 || current.Grok.Message != "本机缓存" || current.Grok.RefreshedAt != "2026-11-06T15:59:00Z" {
 		t.Fatalf("independent state = %+v", current)
+	}
+}
+
+// 状态长轮询在无变化超时后返回 304，变更发生时应立即返回 200 和最新状态版本；常用应用长轮询在 PUT 保存后也应立即唤醒。
+func TestLongPollingForStateAndShortcuts(t *testing.T) {
+	t.Setenv("JUNIMO_INSTANCE_ID", "lp-instance")
+	notifier := newChangeNotifier()
+	store := &shortcutStore{directory: t.TempDir()}
+	shutdown := make(chan struct{})
+	defer close(shutdown)
+	handler := newSurfaceHandlerWithLifecycle(nil, nil, nil, nil, notifier, shutdown, store)
+
+	initial := httptest.NewRecorder()
+	handler.ServeHTTP(initial, httptest.NewRequest(http.MethodGet, "/state", nil))
+	version := initial.Header().Get(stateVersionHeaderKey)
+	if version != "1" {
+		t.Fatalf("initial version header = %q, want 1", version)
+	}
+
+	// 无变更且短超时时应返回 304 Not Modified 且不携带响应体。
+	unchanged := httptest.NewRecorder()
+	handler.ServeHTTP(unchanged, httptest.NewRequest(http.MethodGet, "/state?after=1&wait=20", nil))
+	if unchanged.Code != http.StatusNotModified || unchanged.Body.Len() != 0 {
+		t.Fatalf("unchanged status=%d body=%q", unchanged.Code, unchanged.Body.String())
+	}
+
+	// 状态变更时等待中的 /state 长轮询应立即返回 200 与新版本号。
+	woke := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/state?after=1&wait=2000", nil))
+		woke <- rec
+	}()
+	time.Sleep(15 * time.Millisecond)
+	notifier.Notify()
+	select {
+	case rec := <-woke:
+		if rec.Code != http.StatusOK || rec.Header().Get(stateVersionHeaderKey) != "2" {
+			t.Fatalf("woke status=%d version=%q", rec.Code, rec.Header().Get(stateVersionHeaderKey))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("state long poll did not wake on Notify")
+	}
+
+	// 常用应用长轮询在 PUT 写入新收藏后应立即返回新版本。
+	initialShortcuts := httptest.NewRecorder()
+	handler.ServeHTTP(initialShortcuts, httptest.NewRequest(http.MethodGet, "/app-shortcuts", nil))
+	if initialShortcuts.Code != http.StatusOK {
+		t.Fatalf("initial shortcuts status=%d", initialShortcuts.Code)
+	}
+	shortcutWoke := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/app-shortcuts?after=1&wait=2000", nil))
+		shortcutWoke <- rec
+	}()
+	time.Sleep(15 * time.Millisecond)
+	putReq := httptest.NewRequest(http.MethodPut, "/app-shortcuts", bytes.NewBufferString(`{"revision":1,"items":[{"bundleId":"com.apple.finder","name":"Finder"}]}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	putReq.Header.Set("X-Junimo-Instance-ID", "lp-instance")
+	putRec := httptest.NewRecorder()
+	handler.ServeHTTP(putRec, putReq)
+	if putRec.Code != http.StatusOK {
+		t.Fatalf("PUT shortcuts failed: %d %s", putRec.Code, putRec.Body.String())
+	}
+	select {
+	case rec := <-shortcutWoke:
+		var updated appShortcuts
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &updated) != nil || updated.Revision != 2 {
+			t.Fatalf("shortcuts long poll = %d %s", rec.Code, rec.Body.String())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("app-shortcuts long poll did not wake on PUT")
 	}
 }

@@ -26,3 +26,27 @@ type Snapshot struct {
 	RefreshedAt  string  `json:"refreshedAt,omitempty"`
 	IsAppRunning *bool   `json:"isAppRunning,omitempty"`
 }
+
+// Equal 比较两份快照的业务内容是否完全一致，用于变更驱动通知去重。
+func (s Snapshot) Equal(other Snapshot) bool {
+	return s.Status == other.Status &&
+		s.Message == other.Message &&
+		s.RefreshedAt == other.RefreshedAt &&
+		windowsEqual(s.Primary, other.Primary) &&
+		windowsEqual(s.Secondary, other.Secondary) &&
+		boolPtrEqual(s.IsAppRunning, other.IsAppRunning)
+}
+
+func windowsEqual(a, b *Window) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func boolPtrEqual(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}

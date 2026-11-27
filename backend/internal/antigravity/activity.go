@@ -153,14 +153,18 @@ func conversationKey(id string) string {
 }
 
 type Monitor struct {
-	source   Source
-	started  time.Time
-	watcher  *processwatch.Watcher
-	version  dbStamp
-	tasks    []task
-	loaded   bool
-	mu       sync.RWMutex
-	snapshot Snapshot
+	source           Source
+	started          time.Time
+	watcher          *processwatch.Watcher
+	version          dbStamp
+	tasks            []task
+	loaded           bool
+	mu               sync.RWMutex
+	snapshot         Snapshot
+	onChange         func()
+	onRunningChange  func(bool)
+	hasNotifiedRun   bool
+	lastNotifiedRun  bool
 }
 
 func NewMonitor(source Source) *Monitor {
@@ -170,6 +174,19 @@ func NewMonitor(source Source) *Monitor {
 		watcher: processwatch.New("Antigravity"),
 	}
 }
+
+func (m *Monitor) SetOnChange(fn func()) {
+	m.mu.Lock()
+	m.onChange = fn
+	m.mu.Unlock()
+}
+
+func (m *Monitor) SetOnRunningChange(fn func(bool)) {
+	m.mu.Lock()
+	m.onRunningChange = fn
+	m.mu.Unlock()
+}
+
 func (m *Monitor) Snapshot() Snapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -189,8 +206,43 @@ func (m *Monitor) refresh(ctx context.Context, now time.Time) {
 	}
 	snapshot.Events = m.recentCompletions(now)
 	m.mu.Lock()
+	changed := !antigravitySnapshotsEqual(m.snapshot, snapshot)
 	m.snapshot = snapshot
+	onChange := m.onChange
+	onRunning := m.onRunningChange
+	runningNow := snapshot.IsAppRunning != nil && *snapshot.IsAppRunning
+	runningChanged := !m.hasNotifiedRun || m.lastNotifiedRun != runningNow
+	m.hasNotifiedRun = true
+	m.lastNotifiedRun = runningNow
 	m.mu.Unlock()
+	if runningChanged && onRunning != nil {
+		onRunning(runningNow)
+	}
+	if changed && onChange != nil {
+		onChange()
+	}
+}
+
+func antigravitySnapshotsEqual(a, b Snapshot) bool {
+	if !boolPtrEqual(a.IsAppRunning, b.IsAppRunning) || !boolPtrEqual(a.IsWorking, b.IsWorking) {
+		return false
+	}
+	if len(a.Events) != len(b.Events) {
+		return false
+	}
+	for i := range a.Events {
+		if a.Events[i] != b.Events[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func boolPtrEqual(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func workingState(tasks []task, appRunning *bool) *bool {

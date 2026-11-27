@@ -5,14 +5,21 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
+	"time"
 
 	"junimo/backend/internal/antigravity"
 	"junimo/backend/internal/codexactivity"
 	"junimo/backend/internal/quota"
 )
 
-const protocolVersion = 7
+const (
+	protocolVersion       = 7
+	defaultLongPollWait   = 25 * time.Second
+	maxLongPollWait       = 30 * time.Second
+	stateVersionHeaderKey = "X-Junimo-State-Version"
+)
 
 type healthResponse struct {
 	Status          string `json:"status"`
@@ -62,6 +69,18 @@ func newHandler(
 }
 
 func newSurfaceHandler(usageProvider func() quota.Snapshot, activityProvider func() codexactivity.Snapshot, grokProvider func() quota.Snapshot, gravityProvider func() antigravity.Snapshot, stores ...*shortcutStore) http.Handler {
+	return newSurfaceHandlerWithLifecycle(usageProvider, activityProvider, grokProvider, gravityProvider, newChangeNotifier(), nil, stores...)
+}
+
+func newSurfaceHandlerWithLifecycle(
+	usageProvider func() quota.Snapshot,
+	activityProvider func() codexactivity.Snapshot,
+	grokProvider func() quota.Snapshot,
+	gravityProvider func() antigravity.Snapshot,
+	stateNotifier *changeNotifier,
+	shutdown <-chan struct{},
+	stores ...*shortcutStore,
+) http.Handler {
 	if usageProvider == nil {
 		usageProvider = func() quota.Snapshot {
 			return quota.Snapshot{Status: quota.StatusLoading}
@@ -78,6 +97,9 @@ func newSurfaceHandler(usageProvider func() quota.Snapshot, activityProvider fun
 	if gravityProvider == nil {
 		gravityProvider = func() antigravity.Snapshot { return antigravity.Snapshot{} }
 	}
+	if stateNotifier == nil {
+		stateNotifier = newChangeNotifier()
+	}
 	current := &state{antigravitySnapshot: gravityProvider, usageSnapshot: usageProvider, activitySnapshot: activityProvider, grokSnapshot: grokProvider}
 	mux := http.NewServeMux()
 	instanceID := os.Getenv("JUNIMO_INSTANCE_ID")
@@ -85,12 +107,24 @@ func newSurfaceHandler(usageProvider func() quota.Snapshot, activityProvider fun
 	if len(stores) > 0 {
 		store = stores[0]
 	}
-	registerShortcuts(mux, store, instanceID)
+	registerShortcuts(mux, store, instanceID, shutdown)
 	registerShortcutSelection(mux, store, instanceID)
 	mux.HandleFunc("GET /health", func(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, healthResponse{Status: "ok", ProtocolVersion: protocolVersion, InstanceID: instanceID})
 	})
 	mux.HandleFunc("GET /state", func(writer http.ResponseWriter, request *http.Request) {
+		if after, hasAfter := parseAfterQuery(request); hasAfter {
+			wait := parseWaitQuery(request)
+			version, changed := stateNotifier.Wait(request.Context(), shutdown, after, wait)
+			writer.Header().Set(stateVersionHeaderKey, strconv.FormatUint(version, 10))
+			if !changed {
+				writer.WriteHeader(http.StatusNotModified)
+				return
+			}
+			writeJSON(writer, current.snapshot())
+			return
+		}
+		writer.Header().Set(stateVersionHeaderKey, strconv.FormatUint(stateNotifier.Version(), 10))
 		writeJSON(writer, current.snapshot())
 	})
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -99,6 +133,34 @@ func newSurfaceHandler(usageProvider func() quota.Snapshot, activityProvider fun
 		}
 		mux.ServeHTTP(writer, request)
 	})
+}
+
+func parseAfterQuery(request *http.Request) (uint64, bool) {
+	raw := request.URL.Query().Get("after")
+	if raw == "" {
+		return 0, false
+	}
+	value, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func parseWaitQuery(request *http.Request) time.Duration {
+	raw := request.URL.Query().Get("wait")
+	if raw == "" {
+		return defaultLongPollWait
+	}
+	ms, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || ms < 0 {
+		return defaultLongPollWait
+	}
+	wait := time.Duration(ms) * time.Millisecond
+	if wait > maxLongPollWait {
+		return maxLongPollWait
+	}
+	return wait
 }
 
 func writeJSON(writer http.ResponseWriter, value any) {

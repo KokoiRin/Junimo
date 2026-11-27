@@ -24,9 +24,18 @@ public enum AppShortcutError: LocalizedError {
 }
 
 public protocol AppShortcutsBackend: AnyObject {
+    var supportsLongPolling: Bool { get }
     func loadAppShortcuts() async throws -> AppShortcutList
+    func waitForAppShortcutsChange(after revision: UInt64) async throws -> AppShortcutList?
     func saveAppShortcuts(_ items: [AppShortcut], revision: UInt64) async throws -> AppShortcutList
     func selectAppShortcut(_ request: AppShortcutSelectionRequest) async throws -> AppShortcut?
+}
+
+public extension AppShortcutsBackend {
+    var supportsLongPolling: Bool { false }
+    func waitForAppShortcutsChange(after revision: UInt64) async throws -> AppShortcutList? {
+        try await loadAppShortcuts()
+    }
 }
 
 public struct AppShortcutSelectionRequest: Codable {
@@ -66,23 +75,36 @@ public final class AppShortcutsStore: ObservableObject {
         loadTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
+                var shouldSleep = !backend.supportsLongPolling
                 if !isSaving {
                     do {
-                        let value = try await backend.loadAppShortcuts()
+                        let value: AppShortcutList?
+                        if backend.supportsLongPolling && isLoaded {
+                            value = try await backend.waitForAppShortcutsChange(after: revision)
+                        } else {
+                            value = try await backend.loadAppShortcuts()
+                        }
                         guard !Task.isCancelled else { return }
                         if !isSaving {
-                            accept(value)
+                            if let value {
+                                accept(value)
+                            }
                             if hasLoadError { error = nil; hasLoadError = false }
                         }
                     } catch {
                         guard !Task.isCancelled else { return }
+                        shouldSleep = true
                         if !isSaving && (self.error == nil || hasLoadError) {
                             self.error = "读取常用应用失败：\(error.localizedDescription)"
                             hasLoadError = true
                         }
                     }
+                } else {
+                    shouldSleep = true
                 }
-                try? await Task.sleep(nanoseconds: refreshInterval)
+                if shouldSleep {
+                    try? await Task.sleep(nanoseconds: refreshInterval)
+                }
             }
         }
     }

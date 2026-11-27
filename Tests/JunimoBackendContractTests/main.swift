@@ -92,6 +92,19 @@ Task {
         let stillOwned = try await backend.loadState()
         try expect(stillOwned.revision > second.revision, "original backend must remain usable")
 
+        // 长轮询接口在保存新收藏后应立刻唤醒并返回更新后的列表。
+        let watchedRevision = result.revision
+        let longPollTask = Task { try await backend.waitForAppShortcutsChange(after: watchedRevision) }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        let updatedForLongPoll = [AppShortcut(bundleId: "com.apple.finder", name: "Finder")]
+        let savedAfterPoll = try await backend.saveAppShortcuts(updatedForLongPoll, revision: watchedRevision)
+        let pushedShortcuts = try await longPollTask.value
+        try expect(pushedShortcuts == savedAfterPoll, "app-shortcuts long poll should wake immediately on save")
+
+        // 真实客户端恢复为双项列表后再测试重启持久性。
+        let restoredInput = try await backend.saveAppShortcuts(saved, revision: savedAfterPoll.revision)
+        try expect(restoredInput.items == saved, "restoring two-item list should succeed")
+
         // 同一客户端重复 start 应复用自己拥有的后端，停止后重新启动则建立新的实例。
         try await backend.start()
         backend.stop()

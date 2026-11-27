@@ -41,22 +41,56 @@ func Run(ctx context.Context) error {
 	activityMonitor := codexactivity.NewMonitor(codexactivity.NewClient(executable))
 	monitorContext, stopMonitors := context.WithCancel(ctx)
 	defer stopMonitors()
-	usageMonitor.Start(monitorContext, usageRefreshInterval, usageQueryTimeout)
-	grokMonitor.Start(monitorContext, usageRefreshInterval, usageQueryTimeout)
-	activityMonitor.Start(monitorContext, activityRefreshInterval, activityQueryTimeout)
+
+	stateNotifier := newChangeNotifier()
+	usageMonitor.SetOnChange(stateNotifier.Notify)
+	grokMonitor.SetOnChange(stateNotifier.Notify)
+	activityMonitor.SetOnChange(stateNotifier.Notify)
+
+	codexUsageGate := newAgentGate(monitorContext, func(runCtx context.Context) {
+		usageMonitor.Run(runCtx, usageRefreshInterval, usageQueryTimeout)
+	}, nil)
+	codexActivityGate := newAgentGate(monitorContext, func(runCtx context.Context) {
+		activityMonitor.Run(runCtx, activityRefreshInterval, activityQueryTimeout)
+	}, activityMonitor.SetIdle)
+	grokGate := newAgentGate(monitorContext, func(runCtx context.Context) {
+		grokMonitor.Run(runCtx, usageRefreshInterval, usageQueryTimeout)
+	}, nil)
+	defer func() {
+		codexUsageGate.Stop()
+		codexActivityGate.Stop()
+		grokGate.Stop()
+	}()
 
 	var codexRunning atomic.Pointer[bool]
 	var grokRunning atomic.Pointer[bool]
 	codexWatcher := codexusage.NewProcessWatcher()
 	grokWatcher := processwatch.New("Grok Bot")
+
+	updatePresence := func(probeCtx context.Context) {
+		now := time.Now()
+		prevCodex := codexRunning.Load()
+		nextCodex := codexWatcher.IsRunning(probeCtx, now, false)
+		codexRunning.Store(nextCodex)
+		codexActive := nextCodex != nil && *nextCodex
+		codexUsageGate.SetActive(codexActive)
+		codexActivityGate.SetActive(codexActive)
+
+		prevGrok := grokRunning.Load()
+		nextGrok := grokWatcher.IsRunning(probeCtx, now, false)
+		grokRunning.Store(nextGrok)
+		grokGate.SetActive(nextGrok != nil && *nextGrok)
+
+		if !boolPtrEqual(prevCodex, nextCodex) || !boolPtrEqual(prevGrok, nextGrok) {
+			stateNotifier.Notify()
+		}
+	}
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 		for {
 			probeCtx, cancel := context.WithTimeout(monitorContext, 1500*time.Millisecond)
-			now := time.Now()
-			codexRunning.Store(codexWatcher.IsRunning(probeCtx, now, false))
-			grokRunning.Store(grokWatcher.IsRunning(probeCtx, now, false))
+			updatePresence(probeCtx)
 			cancel()
 			select {
 			case <-monitorContext.Done():
@@ -83,10 +117,17 @@ func Run(ctx context.Context) error {
 	}
 
 	var gravitySnapshot func() antigravity.Snapshot
+	var gravityQuotaGate *agentGate
 	if home, err := os.UserHomeDir(); err == nil {
 		gravity := antigravity.NewMonitor(antigravity.DesktopSource(home))
 		weeklyQuota := quota.NewMonitor(antigravity.WeeklyQuota{DaemonDir: filepath.Join(home, ".gemini", "antigravity", "daemon")})
-		weeklyQuota.Start(monitorContext, time.Minute, 8*time.Second)
+		gravity.SetOnChange(stateNotifier.Notify)
+		weeklyQuota.SetOnChange(stateNotifier.Notify)
+		gravityQuotaGate = newAgentGate(monitorContext, func(runCtx context.Context) {
+			weeklyQuota.Run(runCtx, time.Minute, 8*time.Second)
+		}, nil)
+		defer gravityQuotaGate.Stop()
+		gravity.SetOnRunningChange(gravityQuotaGate.SetActive)
 		gravitySnapshot = func() antigravity.Snapshot {
 			snapshot := gravity.Snapshot()
 			weekly := weeklyQuota.Snapshot()
@@ -102,7 +143,7 @@ func Run(ctx context.Context) error {
 	address := "127.0.0.1:" + port
 	server := &http.Server{
 		Addr:    address,
-		Handler: newSurfaceHandler(codexSnapshot, activityMonitor.Snapshot, grokSnapshot, gravitySnapshot),
+		Handler: newSurfaceHandlerWithLifecycle(codexSnapshot, activityMonitor.Snapshot, grokSnapshot, gravitySnapshot, stateNotifier, ctx.Done()),
 	}
 	serverErrors := make(chan error, 1)
 	go func() {
@@ -124,4 +165,11 @@ func Run(ctx context.Context) error {
 		}
 		return nil
 	}
+}
+
+func boolPtrEqual(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }

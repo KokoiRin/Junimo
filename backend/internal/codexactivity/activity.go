@@ -77,6 +77,7 @@ type Monitor struct {
 	seen                 map[string]struct{}
 	pending              []CompletionEvent
 	snapshot             Snapshot
+	onChange             func()
 }
 
 // NewMonitor 创建尚未完成首次基线扫描的活动监控器。
@@ -86,6 +87,25 @@ func NewMonitor(source scanner) *Monitor {
 		now:      time.Now,
 		seen:     make(map[string]struct{}),
 		snapshot: Snapshot{Status: StatusLoading},
+	}
+}
+
+// SetOnChange 注册活动快照变化时的回调。
+func (monitor *Monitor) SetOnChange(fn func()) {
+	monitor.mu.Lock()
+	monitor.onChange = fn
+	monitor.mu.Unlock()
+}
+
+// SetIdle 在目标应用退出并暂停轮询时清除残留的运行态标记。
+func (monitor *Monitor) SetIdle() {
+	monitor.mu.Lock()
+	changed := monitor.snapshot.IsWorking
+	monitor.snapshot.IsWorking = false
+	onChange := monitor.onChange
+	monitor.mu.Unlock()
+	if changed && onChange != nil {
+		onChange()
 	}
 }
 
@@ -105,13 +125,27 @@ func (monitor *Monitor) Snapshot() Snapshot {
 func (monitor *Monitor) Refresh(ctx context.Context) {
 	working := monitor.scanner.IsWorking(ctx)
 	threads, err := monitor.scanner.Scan(ctx)
+	if err != nil && ctx.Err() != nil {
+		return
+	}
 	now := monitor.now().Unix()
 	monitor.mu.Lock()
-	defer monitor.mu.Unlock()
+	previous := monitor.snapshot
+	if previous.CompletionEvent != nil {
+		ev := *previous.CompletionEvent
+		previous.CompletionEvent = &ev
+	}
+	onChange := monitor.onChange
+
 	monitor.snapshot.IsWorking = working
 	if err != nil {
 		monitor.snapshot.Status = StatusUnavailable
 		monitor.snapshot.Message = err.Error()
+		changed := !activitySnapshotsEqual(previous, monitor.snapshot)
+		monitor.mu.Unlock()
+		if changed && onChange != nil {
+			onChange()
+		}
 		return
 	}
 
@@ -124,6 +158,11 @@ func (monitor *Monitor) Refresh(ctx context.Context) {
 		monitor.lastSuccessfulScanAt = now
 		monitor.snapshot.Status = StatusAvailable
 		monitor.snapshot.Message = ""
+		changed := !activitySnapshotsEqual(previous, monitor.snapshot)
+		monitor.mu.Unlock()
+		if changed && onChange != nil {
+			onChange()
+		}
 		return
 	}
 
@@ -150,6 +189,21 @@ func (monitor *Monitor) Refresh(ctx context.Context) {
 		monitor.pending = monitor.pending[1:]
 		monitor.snapshot.CompletionEvent = &event
 	}
+	changed := !activitySnapshotsEqual(previous, monitor.snapshot)
+	monitor.mu.Unlock()
+	if changed && onChange != nil {
+		onChange()
+	}
+}
+
+func activitySnapshotsEqual(a, b Snapshot) bool {
+	if a.IsWorking != b.IsWorking || a.Status != b.Status || a.Message != b.Message {
+		return false
+	}
+	if a.CompletionEvent == nil || b.CompletionEvent == nil {
+		return a.CompletionEvent == b.CompletionEvent
+	}
+	return *a.CompletionEvent == *b.CompletionEvent
 }
 
 // publishablePendingEvents 在真正发布前再次检查队列，防止等待期间已继续运行的会话收到迟到提醒。
@@ -218,30 +272,36 @@ func isFreshCompletion(event CompletionEvent, lastSuccessfulScanAt int64, now in
 	return time.Duration(now-event.CompletedAt)*time.Second <= completionFreshnessWindow
 }
 
-// Start 立即刷新并按固定间隔重试；超时只结束当次扫描，不终止后续恢复机会。
-func (monitor *Monitor) Start(ctx context.Context, refreshInterval time.Duration, queryTimeout time.Duration) {
-	go func() {
-		defer func() {
-			if closer, ok := monitor.scanner.(interface{ Close() }); ok {
-				closer.Close()
-			}
-		}()
-		for {
-			queryContext, cancel := context.WithTimeout(ctx, queryTimeout)
-			monitor.Refresh(queryContext)
-			cancel()
-
-			timer := time.NewTimer(refreshInterval)
-			select {
-			case <-ctx.Done():
-				if !timer.Stop() {
-					<-timer.C
-				}
-				return
-			case <-timer.C:
-			}
+// Run 同步执行活动监控并在 ctx 取消时关闭底层扫描器。
+func (monitor *Monitor) Run(ctx context.Context, refreshInterval time.Duration, queryTimeout time.Duration) {
+	defer func() {
+		if closer, ok := monitor.scanner.(interface{ Close() }); ok {
+			closer.Close()
 		}
 	}()
+	for {
+		queryContext, cancel := context.WithTimeout(ctx, queryTimeout)
+		monitor.Refresh(queryContext)
+		cancel()
+
+		timer := time.NewTimer(refreshInterval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+// Start 立即刷新并按固定间隔重试；超时只结束当次扫描，不终止后续恢复机会。
+func (monitor *Monitor) Start(ctx context.Context, refreshInterval time.Duration, queryTimeout time.Duration) {
+	go monitor.Run(ctx, refreshInterval, queryTimeout)
 }
 
 // completedEvents 按完成时间排序，使同一扫描内最新事件成为当前公开事实。
