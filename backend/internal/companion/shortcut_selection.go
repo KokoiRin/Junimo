@@ -6,12 +6,13 @@ import (
 	"net/http"
 )
 
-// 外壳只上报可见数量和前台应用；循环顺序与越界规则由后端根据已保存收藏决定。
+// 外壳只上报可见范围和前台应用；循环顺序与越界规则由后端根据已保存收藏决定。
 type shortcutSelectionRequest struct {
-	Revision     uint64 `json:"revision"`
-	VisibleCount int    `json:"visibleCount"`
-	ActiveID     string `json:"activeId"`
-	Direction    int    `json:"direction"`
+	Revision     uint64   `json:"revision"`
+	VisibleCount int      `json:"visibleCount"`
+	VisibleIDs   []string `json:"visibleIds,omitempty"`
+	ActiveID     string   `json:"activeId"`
+	Direction    int      `json:"direction"`
 }
 
 type shortcutSelectionResponse struct {
@@ -61,6 +62,24 @@ func registerShortcutSelection(mux *http.ServeMux, store *shortcutStore, instanc
 		}
 		if request.Revision != value.Revision {
 			http.Error(w, errShortcutConflict.Error(), http.StatusConflict)
+			return
+		}
+		if request.VisibleIDs != nil {
+			allowed := make(map[string]struct{}, len(request.VisibleIDs))
+			for _, id := range request.VisibleIDs {
+				allowed[id] = struct{}{}
+			}
+			visible := make([]appShortcut, 0, len(allowed))
+			for _, item := range value.Items {
+				if _, ok := allowed[item.BundleID]; ok {
+					visible = append(visible, item)
+				}
+			}
+			if len(visible) != len(allowed) {
+				http.Error(w, "可见应用不在当前收藏中", http.StatusBadRequest)
+				return
+			}
+			writeJSON(w, shortcutSelectionResponse{Item: adjacentShortcut(visible, request.ActiveID, request.Direction)})
 			return
 		}
 		if request.VisibleCount < 0 || request.VisibleCount > len(value.Items) {

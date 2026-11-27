@@ -77,7 +77,7 @@ final class AppBarController: NSObject {
                 self.updateLayout()
             }
         }.store(in: &observations)
-        self.presentation.$enabled.combineLatest(state.$isExpanded)
+        self.presentation.$enabled.combineLatest(state.$isExpanded, self.presentation.$runningBundleIDs)
             .sink { [weak self] _ in Task { @MainActor [weak self] in self?.updateLayout() } }
             .store(in: &observations)
         let center = NSWorkspace.shared.notificationCenter
@@ -158,10 +158,15 @@ final class AppBarController: NSObject {
         UserDefaults.standard.set(swipeEnabled, forKey: "appBar.commandSwipe")
     }
 
+    private var displayedItems: [AppShortcut] {
+        presentation.displayedItems(from: store.items)
+    }
+
     private var visibleItems: [AppShortcut] {
-        let capacity = AppBarCapacity(count: store.items.count,
+        let displayed = displayedItems
+        let capacity = AppBarCapacity(count: displayed.count,
                                       availableWidth: presentation.availableWidth)
-        return Array(store.items.prefix(capacity.visibleCount))
+        return Array(displayed.prefix(capacity.visibleCount))
     }
 
     private func switchApplication(direction: Int) {
@@ -174,7 +179,12 @@ final class AppBarController: NSObject {
             defer { swipeTask = nil }
             do {
                 let target = try await backend.selectAppShortcut(AppShortcutSelectionRequest(
-                    revision: revision, visibleCount: items.count, activeId: activeID, direction: direction))
+                    revision: revision,
+                    visibleCount: items.count,
+                    visibleIds: items.map(\.bundleId),
+                    activeId: activeID,
+                    direction: direction
+                ))
                 // 等待后端期间若用户换了前台应用、收藏或布局，不执行过时的打开动作。
                 guard !Task.isCancelled, panel.isVisible, store.revision == revision, visibleItems == items,
                       (NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "") == activeID,
@@ -289,7 +299,8 @@ final class AppBarController: NSObject {
     private func updateLayout() {
         guard !stopped else { return }
         if enableGlobalGestures && swipeEnabled { swipeMonitor.start() }
-        guard presentation.enabled, !state.isExpanded, !store.items.isEmpty,
+        let displayed = displayedItems
+        guard presentation.enabled, !state.isExpanded, !displayed.isEmpty,
               let screen = JunimoScreenGeometry.targetScreen() else {
             errorPopover?.close()
             panel.orderOut(nil)
@@ -304,7 +315,7 @@ final class AppBarController: NSObject {
         let height = max(AppBarLayout.cellSize, screen.safeAreaInsets.top)
         let originY = screen.frame.maxY - height + (height - AppBarLayout.cellSize) / 2
         if presentation.availableWidth != available { presentation.availableWidth = available }
-        let capacity = AppBarCapacity(count: store.items.count, availableWidth: available)
+        let capacity = AppBarCapacity(count: displayed.count, availableWidth: available)
         guard capacity.width > 0 else { panel.orderOut(nil); return }
         let frame = NSRect(x: originX, y: originY, width: capacity.width, height: AppBarLayout.cellSize)
         if panel.frame != frame { panel.setFrame(frame, display: true) }

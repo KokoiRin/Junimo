@@ -26,12 +26,20 @@ public struct CodexUsageSnapshot: Codable, Equatable {
     public var primary: CodexUsageWindow?
     public var message: String?
     public var refreshedAt: String?
+    public var isAppRunning: Bool?
 
-    public init(status: CodexUsageStatus = .loading, primary: CodexUsageWindow? = nil, message: String? = nil, refreshedAt: String? = nil) {
+    public init(
+        status: CodexUsageStatus = .loading,
+        primary: CodexUsageWindow? = nil,
+        message: String? = nil,
+        refreshedAt: String? = nil,
+        isAppRunning: Bool? = nil
+    ) {
         self.message = message
         self.refreshedAt = refreshedAt
         self.status = status
         self.primary = primary
+        self.isAppRunning = isAppRunning
     }
 
     public var compactSummary: String {
@@ -113,7 +121,12 @@ public struct AntigravitySnapshot: Codable, Equatable {
 
 // SurfaceState 是协议 v7 的完整只读组合快照。
 public struct SurfaceState: Codable, Equatable {
+    public var showsCodex: Bool { codex.isAppRunning == true }
+    public var showsGrok: Bool { grok.isAppRunning == true }
     public var showsAntigravity: Bool { antigravity?.isAppRunning == true }
+    public var visibleAgentRingCount: Int {
+        (showsCodex ? 1 : 0) + (showsGrok ? 1 : 0) + (showsAntigravity ? 1 : 0)
+    }
     public var antigravity: AntigravitySnapshot?
     public var revision: UInt64
     public var codex: CodexUsageSnapshot

@@ -89,21 +89,44 @@ func testCompanionKeepsReadableTypography() {
     guard JunimoTypography.caption >= 12 else { fail("caption should remain at least 12pt") }
 }
 
-// 折叠态应在刘海左侧画出用量胶囊、中央触发区保持视觉透明，右侧交给独立应用栏而不保留旧入口。
+// 折叠态在无运行中 Agent 时不显示左侧空胶囊，有运行中 Agent 时在刘海左侧画出用量胶囊、中央触发区保持视觉透明。
 @MainActor
-func testCollapsedControlsKeepNotchTriggerClear() {
-    let size = CGSize(width: JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: false) + JunimoPanelLayout.collapsedNotchClearance * 2, height: 33)
-    let state = ShellState()
+func testCollapsedControlsKeepNotchTriggerClear() async {
+    let emptyLaneWidth = JunimoPanelLayout.collapsedCapsuleLaneWidth(showsCodex: false, showsGrok: false, showsAntigravity: false)
+    guard emptyLaneWidth == 0 else { fail("empty agent lane must collapse to zero width") }
+    let emptySize = CGSize(width: emptyLaneWidth + JunimoPanelLayout.collapsedNotchClearance * 2, height: 33)
+    let emptyBitmap = render(
+        JunimoSurfaceView(state: ShellState(), launcher: QuickLauncher(workspace: VisualFakeWorkspace()))
+            .frame(width: emptySize.width, height: emptySize.height),
+        size: emptySize
+    )
+    var emptyVisible = 0
+    for x in 0..<emptyBitmap.pixelsWide {
+        for y in 0..<emptyBitmap.pixelsHigh where (emptyBitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.60 {
+            emptyVisible += 1
+        }
+    }
+    guard emptyVisible == 0 else { fail("collapsed shell must not render an empty capsule when no agent is running") }
+
+    let state = ShellState(backend: UsageVisualBackend(codexOpen: true, grokOpen: false, appOpen: false, working: false))
+    state.start()
+    defer { state.stop() }
+    for _ in 0..<100 {
+        if state.surfaceState.showsCodex { break }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+    }
+    guard state.surfaceState.showsCodex else { fail("codex running fixture did not load") }
+
+    let laneWidth = JunimoPanelLayout.collapsedCapsuleLaneWidth(showsCodex: true, showsGrok: false, showsAntigravity: false)
+    let size = CGSize(width: laneWidth + JunimoPanelLayout.collapsedNotchClearance * 2, height: 33)
     let bitmap = render(
         JunimoSurfaceView(state: state, launcher: QuickLauncher(workspace: VisualFakeWorkspace()))
             .frame(width: size.width, height: size.height),
         size: size
     )
     let scale = CGFloat(bitmap.pixelsWide) / size.width
-    let leftEnd = Int(JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: false) * scale)
-    let rightStart = Int(
-        (JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: false) + JunimoPanelLayout.collapsedNotchClearance * 2) * scale
-    )
+    let leftEnd = Int(laneWidth * scale)
+    let rightStart = Int((laneWidth + JunimoPanelLayout.collapsedNotchClearance * 2) * scale)
     var leftVisible = 0
     var centerVisible = 0
     var rightVisible = 0
@@ -182,7 +205,8 @@ func testAppBarLayoutAndActiveHighlight() async {
     let defaults = UserDefaults(suiteName: suite)!
     defer { defaults.removePersistentDomain(forName: suite); store.stop() }
     defaults.set("below", forKey: "appBar.placement")
-    let presentation = AppBarPresentation(defaults: defaults)
+    let allBundleIDs = Set(store.items.map(\.bundleId))
+    let presentation = AppBarPresentation(defaults: defaults, runningBundleIDsProvider: { allBundleIDs })
     guard defaults.object(forKey: "appBar.placement") == nil else { fail("obsolete placement preference must be removed") }
     presentation.refreshApplications(store.items)
     let output = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/app-bar-previews")
@@ -197,6 +221,11 @@ func testAppBarLayoutAndActiveHighlight() async {
     guard alpha(active, at: CGPoint(x: 0, y: 0), size: size) < 0.15 else { fail("capsule corner must be transparent") }
     guard alpha(active, at: CGPoint(x: size.width / 2, y: size.height / 2), size: size) > 0.9 else { fail("app bar center must be visible") }
     guard active.tiffRepresentation != idle.tiffRepresentation else { fail("frontmost app must have a visible highlight") }
+    // 未启动的收藏应用（如关闭的 Safari）不得出现在应用栏展示列表中。
+    let runningOnly = AppBarPresentation(defaults: defaults, runningBundleIDsProvider: { ["com.apple.finder", "com.google.Chrome"] })
+    guard runningOnly.displayedItems(from: store.items).map(\.bundleId) == ["com.apple.finder", "com.google.Chrome"] else {
+        fail("app bar must only display currently running favorite apps")
+    }
     if let png = active.representation(using: .png, properties: [:]) {
         try? png.write(to: output.appendingPathComponent("right.png"))
     }
@@ -210,14 +239,15 @@ func testAppBarLayoutAndActiveHighlight() async {
     guard !restored.enabled else { fail("shell preferences must survive recreation") }
 }
 
-// 真实独立面板在收藏加载后出现，展开主面板和关闭开关时隐藏，折叠、重新开启后恢复，清空收藏后再次隐藏。
+// 真实独立面板仅在有正在运行的收藏应用时出现，所有收藏退出、展开主面板或关闭开关时隐藏，重新启动或恢复后再次出现。
 @MainActor
 func testAppBarWindowVisibility() async {
     _ = NSApplication.shared
     NSApp.setActivationPolicy(.accessory)
     let suite = "junimo-window-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
-    let presentation = AppBarPresentation(defaults: defaults)
+    var running: Set<String> = ["com.openai.codex", "com.apple.finder"]
+    let presentation = AppBarPresentation(defaults: defaults, runningBundleIDsProvider: { running })
     let backend = VisualShortcutsBackend()
     let state = ShellState()
     let controller = AppBarController(
@@ -235,6 +265,13 @@ func testAppBarWindowVisibility() async {
         }
         fail("app bar visibility should be \(expected) (items=\(controller.store.items.count), availableWidth=\(presentation.availableWidth), enabled=\(presentation.enabled), expanded=\(state.isExpanded))")
     }
+    await waitFor(true)
+    // 所有收藏应用退出后，右侧应用栏应自动隐藏，避免展示未启动应用。
+    running = []
+    presentation.refreshActiveApplication()
+    await waitFor(false)
+    running = ["com.apple.finder"]
+    presentation.refreshActiveApplication()
     await waitFor(true)
     state.pointerEntered()
     await waitFor(false)
@@ -382,10 +419,14 @@ func testSwipePermissionRecovery() {
 }
 
 final class UsageVisualBackend: ShellBackendClient {
+    let codexOpen: Bool
+    let grokOpen: Bool
     let appOpen: Bool
     let working: Bool
 
-    init(appOpen: Bool, working: Bool) {
+    init(codexOpen: Bool, grokOpen: Bool, appOpen: Bool, working: Bool) {
+        self.codexOpen = codexOpen
+        self.grokOpen = grokOpen
         self.appOpen = appOpen
         self.working = working
     }
@@ -394,8 +435,8 @@ final class UsageVisualBackend: ShellBackendClient {
     func loadState() async throws -> SurfaceState {
         SurfaceState(revision: 1,
             antigravity: AntigravitySnapshot(isAppRunning: appOpen, isWorking: working, weeklyQuota: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 92, windowDurationMinutes: 10080))),
-            codex: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 100, windowDurationMinutes: 10080)),
-            grok: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 100, windowDurationMinutes: 10080)),
+            codex: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 100, windowDurationMinutes: 10080), isAppRunning: codexOpen),
+            grok: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 100, windowDurationMinutes: 10080), isAppRunning: grokOpen),
             activity: CodexActivitySnapshot(status: .available, completionEvent: CodexCompletionEvent(
                 id: "visual-long-task", threadId: "visual-thread",
                 title: "一个很长的任务标题应当让出空间，确保两个来源的剩余百分比始终完整显示而不被截断",
@@ -403,22 +444,22 @@ final class UsageVisualBackend: ShellBackendClient {
     }
 }
 
-// Antigravity 打开时紫环在空闲和工作时都可见，退出后即使仍有额度缓存也只显示绿蓝两环，折叠和展开的表现一致。
+// Codex、Grok Bot 与 Antigravity 三个圆环均仅在各自运行时显示，未运行时即使已有额度缓存也应隐藏，折叠和展开的表现一致。
 @MainActor
-func testUsageRingsRender(appOpen: Bool, working: Bool) async {
-    let state = ShellState(backend: UsageVisualBackend(appOpen: appOpen, working: working))
+func testUsageRingsRender(codexOpen: Bool, grokOpen: Bool, appOpen: Bool, working: Bool) async {
+    let state = ShellState(backend: UsageVisualBackend(codexOpen: codexOpen, grokOpen: grokOpen, appOpen: appOpen, working: working))
     state.start()
     defer { state.stop() }
     for _ in 0..<100 {
-        if state.surfaceState.grok.status == .available { break }
+        if state.surfaceState.codex.status == .available { break }
         try? await Task.sleep(nanoseconds: 10_000_000)
     }
-    guard state.surfaceState.grok.status == .available else { fail("usage fixture did not load") }
+    guard state.surfaceState.codex.status == .available else { fail("usage fixture did not load") }
     for expanded in [false, true] {
         if expanded { state.expand() }
         let size = expanded
             ? CGSize(width: JunimoPanelLayout.expandedWidth, height: JunimoPanelLayout.expandedHeight)
-            : CGSize(width: JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: appOpen) + JunimoPanelLayout.collapsedNotchClearance * 2, height: 33)
+            : CGSize(width: JunimoPanelLayout.collapsedCapsuleLaneWidth(showsCodex: codexOpen, showsGrok: grokOpen, showsAntigravity: appOpen) + JunimoPanelLayout.collapsedNotchClearance * 2, height: 33)
         let bitmap = render(JunimoSurfaceView(state: state, launcher: QuickLauncher(workspace: VisualFakeWorkspace())).frame(width: size.width, height: size.height), size: size)
         var green = 0
         var blue = 0
@@ -431,9 +472,12 @@ func testUsageRingsRender(appOpen: Bool, working: Bool) async {
                 if color.blueComponent > 0.75 && color.redComponent < 0.6 && color.greenComponent > 0.5 && color.greenComponent < 0.85 { blue += 1 }
             }
         }
-        guard green > 8 && blue > 8 else { fail("both usage colors should be visible: green=\(green) blue=\(blue)") }
+        if !expanded {
+            guard codexOpen ? green > 8 : green == 0 else { fail("unexpected Codex ring visibility: codexOpen=\(codexOpen) green=\(green)") }
+        }
+        guard grokOpen ? blue > 8 : blue == 0 else { fail("unexpected Grok ring visibility: grokOpen=\(grokOpen) blue=\(blue)") }
         guard appOpen ? purple > 3 : purple == 0 else { fail("unexpected Antigravity ring visibility") }
-        guard appOpen && working else { continue }
+        guard codexOpen && grokOpen && appOpen && working else { continue }
         let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/direct/usage-\(expanded ? "expanded" : "collapsed").png")
         guard let png = bitmap.representation(using: .png, properties: [:]) else { fail("usage preview could not encode") }
         do { try png.write(to: path) } catch { fail("usage preview could not save") }
@@ -452,9 +496,11 @@ func testAppBarCapsuleHitTesting() {
 
 Task { @MainActor in
     testAppBarCapsuleHitTesting()
-    await testUsageRingsRender(appOpen: false, working: false)
-    await testUsageRingsRender(appOpen: true, working: false)
-    await testUsageRingsRender(appOpen: true, working: true)
+    await testUsageRingsRender(codexOpen: false, grokOpen: false, appOpen: false, working: false)
+    await testUsageRingsRender(codexOpen: true, grokOpen: false, appOpen: false, working: false)
+    await testUsageRingsRender(codexOpen: true, grokOpen: true, appOpen: false, working: false)
+    await testUsageRingsRender(codexOpen: true, grokOpen: true, appOpen: true, working: false)
+    await testUsageRingsRender(codexOpen: true, grokOpen: true, appOpen: true, working: true)
     testSwipePermissionRecovery()
     testCommandSwipeConsumesOneGesture()
     testCommandSwipeLeavesOtherInputAlone()
@@ -464,7 +510,7 @@ Task { @MainActor in
     testExpandedPanelKeepsRoundedCornersTransparent()
     testCompanionRendersVisibleAccentContent()
     testCompanionKeepsReadableTypography()
-    testCollapsedControlsKeepNotchTriggerClear()
+    await testCollapsedControlsKeepNotchTriggerClear()
     print("Junimo companion visual regression tests passed")
     exit(0)
 }

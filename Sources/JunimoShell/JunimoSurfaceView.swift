@@ -55,8 +55,12 @@ struct JunimoSurfaceView: View {
                 }
                 Spacer()
                 HStack(spacing: 8) {
-                    usageCard("Codex", usage: state.surfaceState.codex, accent: junimoAccent, working: codexWorking)
-                    usageCard("Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
+                    if state.surfaceState.showsCodex {
+                        usageCard("Codex", usage: state.surfaceState.codex, accent: junimoAccent, working: codexWorking)
+                    }
+                    if state.surfaceState.showsGrok {
+                        usageCard("Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
+                    }
                 }
                 .layoutPriority(1)
             }
@@ -199,10 +203,16 @@ struct JunimoSurfaceView: View {
     }
 
     private var collapsed: some View {
-        let laneWidth = JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: state.surfaceState.showsAntigravity)
+        let laneWidth = JunimoPanelLayout.collapsedCapsuleLaneWidth(
+            showsCodex: state.surfaceState.showsCodex,
+            showsGrok: state.surfaceState.showsGrok,
+            showsAntigravity: state.surfaceState.showsAntigravity
+        )
         return HStack(spacing: 0) {
-            agentUsageCapsule
-                .frame(width: laneWidth, alignment: .trailing)
+            if state.surfaceState.visibleAgentRingCount > 0 {
+                agentUsageCapsule
+                    .frame(width: laneWidth, alignment: .trailing)
+            }
             notchHoverTrigger
         }
         .frame(width: laneWidth + notchClearance * 2)
@@ -225,8 +235,12 @@ struct JunimoSurfaceView: View {
 
     private var agentUsageCapsule: some View {
         HStack(spacing: 12) {
-            compactUsage(name: "Codex", usage: state.surfaceState.codex, accent: junimoAccent, working: codexWorking)
-            compactUsage(name: "Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
+            if state.surfaceState.showsCodex {
+                compactUsage(name: "Codex", usage: state.surfaceState.codex, accent: junimoAccent, working: codexWorking)
+            }
+            if state.surfaceState.showsGrok {
+                compactUsage(name: "Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
+            }
             if state.surfaceState.showsAntigravity { antigravityRing }
         }
         .padding(.horizontal, 10)

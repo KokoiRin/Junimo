@@ -8,21 +8,46 @@ final class AppBarPresentation: ObservableObject {
     @Published var enabled: Bool
     @Published var availableWidth: CGFloat = AppBarLayout.maximumWidth
     @Published var activeBundleID: String?
+    @Published var runningBundleIDs: Set<String> = []
     @Published var icons: [String: NSImage] = [:]
     @Published var error: String?
     private let defaults: UserDefaults
-    init(defaults: UserDefaults = .standard) {
+    private let runningBundleIDsProvider: @MainActor () -> Set<String>
+
+    init(
+        defaults: UserDefaults = .standard,
+        runningBundleIDsProvider: @escaping @MainActor () -> Set<String> = AppBarPresentation.systemRunningBundleIDs
+    ) {
         self.defaults = defaults
+        self.runningBundleIDsProvider = runningBundleIDsProvider
         defaults.removeObject(forKey: "appBar.placement")
         enabled = defaults.object(forKey: "appBar.enabled") as? Bool ?? true
+        runningBundleIDs = runningBundleIDsProvider()
     }
+
+    static func systemRunningBundleIDs() -> Set<String> {
+        Set(NSWorkspace.shared.runningApplications.compactMap { app in
+            app.isTerminated ? nil : app.bundleIdentifier
+        })
+    }
+
     func toggle() { enabled.toggle(); defaults.set(enabled, forKey: "appBar.enabled") }
+
+    func displayedItems(from items: [AppShortcut]) -> [AppShortcut] {
+        items.filter { runningBundleIDs.contains($0.bundleId) }
+    }
+
     func refreshActiveApplication() {
         let current = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         if activeBundleID != current {
             activeBundleID = current
         }
+        let running = runningBundleIDsProvider()
+        if runningBundleIDs != running {
+            runningBundleIDs = running
+        }
     }
+
     func refreshApplications(_ items: [AppShortcut], forceReloadIcons: Bool = false) {
         refreshActiveApplication()
         let workspace = NSWorkspace.shared
@@ -60,20 +85,21 @@ struct AppBarView: View {
     var showMore: ([AppShortcut]) -> Void = { _ in }
 
     var body: some View {
-        let layout = AppBarCapacity(count: store.items.count,
+        let displayed = presentation.displayedItems(from: store.items)
+        let layout = AppBarCapacity(count: displayed.count,
                                     availableWidth: presentation.availableWidth)
         HStack(spacing: 0) {
-            ForEach(Array(store.items.prefix(layout.visibleCount))) { item in
+            ForEach(Array(displayed.prefix(layout.visibleCount))) { item in
                 Button { open(item) } label: {
                     AppBarIcon(item: item, presentation: presentation)
                 }
                 .buttonStyle(.plain)
                 .help(item.name)
-                .accessibilityLabel("打开或切换到 \(item.name)")
+                .accessibilityLabel("切换到 \(item.name)")
                 .accessibilityIdentifier("appBar.\(item.bundleId)")
             }
             if layout.hasOverflow {
-                Button { showMore(Array(store.items.dropFirst(layout.visibleCount))) } label: {
+                Button { showMore(Array(displayed.dropFirst(layout.visibleCount))) } label: {
                     Image(systemName: "ellipsis")
                         .foregroundStyle(.white.opacity(0.9))
                         .frame(width: AppBarLayout.cellSize, height: AppBarLayout.cellSize)
@@ -134,7 +160,7 @@ struct AppShortcutManagerView: View {
                 Spacer()
                 Text("\(store.items.count) / 12").foregroundStyle(.secondary)
             }
-            Text("固定显示这些应用；打开后点击即可切换。").foregroundStyle(.secondary)
+            Text("仅在应用栏中显示已启动的收藏应用，避免误触打开未运行的应用。").foregroundStyle(.secondary)
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(store.items) { item in

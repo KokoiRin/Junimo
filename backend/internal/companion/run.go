@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"junimo/backend/internal/antigravity"
@@ -14,6 +15,7 @@ import (
 	"junimo/backend/internal/codexappserver"
 	"junimo/backend/internal/codexusage"
 	"junimo/backend/internal/grokusage"
+	"junimo/backend/internal/processwatch"
 	"junimo/backend/internal/quota"
 )
 
@@ -43,6 +45,43 @@ func Run(ctx context.Context) error {
 	grokMonitor.Start(monitorContext, usageRefreshInterval, usageQueryTimeout)
 	activityMonitor.Start(monitorContext, activityRefreshInterval, activityQueryTimeout)
 
+	var codexRunning atomic.Pointer[bool]
+	var grokRunning atomic.Pointer[bool]
+	codexWatcher := codexusage.NewProcessWatcher()
+	grokWatcher := processwatch.New("Grok Bot")
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			probeCtx, cancel := context.WithTimeout(monitorContext, 1500*time.Millisecond)
+			now := time.Now()
+			codexRunning.Store(codexWatcher.IsRunning(probeCtx, now, false))
+			grokRunning.Store(grokWatcher.IsRunning(probeCtx, now, false))
+			cancel()
+			select {
+			case <-monitorContext.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	codexSnapshot := func() quota.Snapshot {
+		snapshot := usageMonitor.Snapshot()
+		if running := codexRunning.Load(); running != nil {
+			value := *running
+			snapshot.IsAppRunning = &value
+		}
+		return snapshot
+	}
+	grokSnapshot := func() quota.Snapshot {
+		snapshot := grokMonitor.Snapshot()
+		if running := grokRunning.Load(); running != nil {
+			value := *running
+			snapshot.IsAppRunning = &value
+		}
+		return snapshot
+	}
+
 	var gravitySnapshot func() antigravity.Snapshot
 	if home, err := os.UserHomeDir(); err == nil {
 		gravity := antigravity.NewMonitor(antigravity.DesktopSource(home))
@@ -63,7 +102,7 @@ func Run(ctx context.Context) error {
 	address := "127.0.0.1:" + port
 	server := &http.Server{
 		Addr:    address,
-		Handler: newSurfaceHandler(usageMonitor.Snapshot, activityMonitor.Snapshot, grokMonitor.Snapshot, gravitySnapshot),
+		Handler: newSurfaceHandler(codexSnapshot, activityMonitor.Snapshot, grokSnapshot, gravitySnapshot),
 	}
 	serverErrors := make(chan error, 1)
 	go func() {

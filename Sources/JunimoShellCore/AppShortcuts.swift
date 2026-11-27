@@ -32,11 +32,15 @@ public protocol AppShortcutsBackend: AnyObject {
 public struct AppShortcutSelectionRequest: Codable {
     public let revision: UInt64
     public let visibleCount: Int
+    public let visibleIds: [String]?
     public let activeId: String
     public let direction: Int
-    public init(revision: UInt64, visibleCount: Int, activeId: String, direction: Int) {
-        self.revision = revision; self.visibleCount = visibleCount
-        self.activeId = activeId; self.direction = direction
+    public init(revision: UInt64, visibleCount: Int, visibleIds: [String]? = nil, activeId: String, direction: Int) {
+        self.revision = revision
+        self.visibleCount = visibleCount
+        self.visibleIds = visibleIds
+        self.activeId = activeId
+        self.direction = direction
     }
 }
 

@@ -19,9 +19,10 @@ type Window struct {
 
 // Snapshot 是后端向外壳公开的标准额度快照，各 Agent 适配器共用同一数据结构。
 type Snapshot struct {
-	Status      Status  `json:"status"`
-	Primary     *Window `json:"primary,omitempty"`
-	Secondary   *Window `json:"secondary,omitempty"`
-	Message     string  `json:"message,omitempty"`
-	RefreshedAt string  `json:"refreshedAt,omitempty"`
+	Status       Status  `json:"status"`
+	Primary      *Window `json:"primary,omitempty"`
+	Secondary    *Window `json:"secondary,omitempty"`
+	Message      string  `json:"message,omitempty"`
+	RefreshedAt  string  `json:"refreshedAt,omitempty"`
+	IsAppRunning *bool   `json:"isAppRunning,omitempty"`
 }

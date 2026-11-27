@@ -52,6 +52,58 @@ func TestVisibleShortcutSelection(t *testing.T) {
 	}
 }
 
+// 传入正在运行的可见应用集合时，后端应按收藏顺序跳过未启动应用并在运行子集内首尾循环，未知应用标识则拒绝。
+func TestVisibleIDsShortcutSelectionSkipsClosedApps(t *testing.T) {
+	t.Setenv("JUNIMO_INSTANCE_ID", "selection-test")
+	store := &shortcutStore{directory: t.TempDir()}
+	items := []appShortcut{
+		{"com.apple.Safari", "Safari"},
+		{"com.apple.finder", "Finder"},
+		{"com.google.Chrome", "Chrome"},
+		{"com.apple.Terminal", "Terminal"},
+	}
+	if err := store.save(appShortcuts{Items: items}); err != nil {
+		t.Fatal(err)
+	}
+	handler := newHandler(nil, nil, store)
+	send := func(body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/app-shortcuts/selection", bytes.NewBufferString(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-Junimo-Instance-ID", "selection-test")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+
+	// Safari 与 Chrome 未运行，仅 Finder 和 Terminal 在应用栏中可见时，切换只能在二者间循环，绝不命中 Safari。
+	for _, tc := range []struct {
+		body string
+		want string
+	}{
+		{`{"revision":1,"visibleCount":2,"visibleIds":["com.apple.Terminal","com.apple.finder"],"direction":1,"activeId":"com.apple.finder"}`, "com.apple.Terminal"},
+		{`{"revision":1,"visibleCount":2,"visibleIds":["com.apple.finder","com.apple.Terminal"],"direction":1,"activeId":"com.apple.Terminal"}`, "com.apple.finder"},
+		{`{"revision":1,"visibleCount":2,"visibleIds":["com.apple.finder","com.apple.Terminal"],"direction":-1,"activeId":"com.apple.finder"}`, "com.apple.Terminal"},
+		{`{"revision":1,"visibleCount":0,"visibleIds":[],"direction":1,"activeId":"com.apple.finder"}`, ""},
+	} {
+		w := send(tc.body)
+		var result shortcutSelectionResponse
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil {
+			t.Fatalf("%s: status=%d body=%s", tc.body, w.Code, w.Body.String())
+		}
+		got := ""
+		if result.Item != nil {
+			got = result.Item.BundleID
+		}
+		if got != tc.want {
+			t.Fatalf("%s: got %q, want %q", tc.body, got, tc.want)
+		}
+	}
+
+	if w := send(`{"revision":1,"visibleCount":1,"visibleIds":["com.unknown.app"],"direction":1,"activeId":""}`); w.Code != 400 {
+		t.Fatalf("unknown visibleId status = %d, want 400", w.Code)
+	}
+}
+
 // 过时收藏、越界可见数量、无效方向、尾随数据及不可信来源都不能生成切换目标。
 func TestShortcutSelectionRejectsInvalidContext(t *testing.T) {
 	t.Setenv("JUNIMO_INSTANCE_ID", "selection-test")

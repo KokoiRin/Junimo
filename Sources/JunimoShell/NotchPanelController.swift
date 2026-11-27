@@ -22,7 +22,7 @@ final class NotchPanelController {
     private let state: ShellState
     private let quickLaunchStore: QuickLaunchConfigurationStore
     private let panel: JunimoPanel
-    private var laneWidth = JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: false)
+    private var laneWidth = JunimoPanelLayout.collapsedCapsuleLaneWidth(showsCodex: false, showsGrok: false, showsAntigravity: false)
     private var laneObservation: AnyCancellable?
     private let expandedSize = NSSize(
         width: JunimoPanelLayout.expandedWidth,
@@ -69,7 +69,7 @@ final class NotchPanelController {
         }
 
         laneObservation = state.$surfaceState
-            .map { JunimoPanelLayout.collapsedCapsuleLaneWidth(showsAntigravity: $0.showsAntigravity) }
+            .map { JunimoPanelLayout.collapsedCapsuleLaneWidth(showsCodex: $0.showsCodex, showsGrok: $0.showsGrok, showsAntigravity: $0.showsAntigravity) }
             .removeDuplicates()
             .sink { [weak self] width in
                 guard let self, laneWidth != width else { return }

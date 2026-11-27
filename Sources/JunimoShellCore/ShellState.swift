@@ -118,6 +118,8 @@ public final class ShellState: ObservableObject {
 
     private func clearTransientWorkingState() {
         if surfaceState.activity.isWorking == true { surfaceState.activity.isWorking = nil }
+        if surfaceState.codex.isAppRunning != nil { surfaceState.codex.isAppRunning = nil }
+        if surfaceState.grok.isAppRunning != nil { surfaceState.grok.isAppRunning = nil }
         if surfaceState.antigravity?.isAppRunning != nil { surfaceState.antigravity?.isAppRunning = nil }
         if surfaceState.antigravity?.isWorking != nil { surfaceState.antigravity?.isWorking = nil }
     }

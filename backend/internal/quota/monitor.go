@@ -39,6 +39,10 @@ func (monitor *Monitor) Snapshot() Snapshot {
 		secondary := *snapshot.Secondary
 		snapshot.Secondary = &secondary
 	}
+	if snapshot.IsAppRunning != nil {
+		running := *snapshot.IsAppRunning
+		snapshot.IsAppRunning = &running
+	}
 	return snapshot
 }
 
