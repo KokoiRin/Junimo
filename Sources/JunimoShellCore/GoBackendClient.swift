@@ -23,9 +23,12 @@ public final class GoBackendClient: ShellBackendClient, AppShortcutsBackend {
     }
 
     public func start() async throws {
-        guard process == nil else {
-            try await waitUntilHealthy()
-            return
+        if let process {
+            if process.isRunning {
+                try await waitUntilHealthy()
+                return
+            }
+            stop()
         }
         guard let executableURL = backendExecutableURL() else {
             throw BackendError.executableNotFound

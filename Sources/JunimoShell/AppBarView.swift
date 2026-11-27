@@ -17,18 +17,37 @@ final class AppBarPresentation: ObservableObject {
         enabled = defaults.object(forKey: "appBar.enabled") as? Bool ?? true
     }
     func toggle() { enabled.toggle(); defaults.set(enabled, forKey: "appBar.enabled") }
-    func refreshApplications(_ items: [AppShortcut]) {
+    func refreshActiveApplication() {
+        let current = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if activeBundleID != current {
+            activeBundleID = current
+        }
+    }
+    func refreshApplications(_ items: [AppShortcut], forceReloadIcons: Bool = false) {
+        refreshActiveApplication()
         let workspace = NSWorkspace.shared
-        activeBundleID = workspace.frontmostApplication?.bundleIdentifier
         var images: [String: NSImage] = [:]
+        var changed = forceReloadIcons || icons.count != items.count
         for item in items {
+            if !forceReloadIcons, let cached = icons[item.bundleId] {
+                images[item.bundleId] = cached
+                continue
+            }
             if let url = workspace.urlForApplication(withBundleIdentifier: item.bundleId) {
                 let icon = workspace.icon(forFile: url.path)
                 icon.size = NSSize(width: 24, height: 24)
                 images[item.bundleId] = icon
+                changed = true
+            } else if icons[item.bundleId] != nil {
+                changed = true
             }
         }
-        icons = images
+        if !changed && Set(images.keys) != Set(icons.keys) {
+            changed = true
+        }
+        if changed {
+            icons = images
+        }
     }
 }
 

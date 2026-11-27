@@ -124,7 +124,7 @@ final class NotchPanelController {
     }
 
     private func resize(expanded: Bool) {
-        guard let screen = targetScreen() else {
+        guard let screen = JunimoScreenGeometry.targetScreen() else {
             panel.setFrame(NSRect(origin: .zero, size: size(on: nil, expanded: expanded)), display: true, animate: false)
             return
         }
@@ -168,14 +168,5 @@ final class NotchPanelController {
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
         }
-    }
-
-    private func targetScreen() -> NSScreen? {
-        NSScreen.screens.first(where: { screen in
-            guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
-                return false
-            }
-            return CGDisplayIsBuiltin(displayID) != 0
-        }) ?? NSScreen.main ?? NSScreen.screens.first
     }
 }

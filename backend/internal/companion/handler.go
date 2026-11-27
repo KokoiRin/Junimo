@@ -9,7 +9,7 @@ import (
 
 	"junimo/backend/internal/antigravity"
 	"junimo/backend/internal/codexactivity"
-	"junimo/backend/internal/codexusage"
+	"junimo/backend/internal/quota"
 )
 
 const protocolVersion = 7
@@ -23,8 +23,8 @@ type healthResponse struct {
 // state 组合独立的 Codex、Grok 用量与 Codex 完成事实。
 type state struct {
 	mu                  sync.Mutex
-	usageSnapshot       func() codexusage.Snapshot
-	grokSnapshot        func() codexusage.Snapshot
+	usageSnapshot       func() quota.Snapshot
+	grokSnapshot        func() quota.Snapshot
 	activitySnapshot    func() codexactivity.Snapshot
 	antigravitySnapshot func() antigravity.Snapshot
 	revision            uint64
@@ -33,8 +33,8 @@ type state struct {
 type stateResponse struct {
 	Antigravity antigravity.Snapshot   `json:"antigravity"`
 	Revision    uint64                 `json:"revision"`
-	Codex       codexusage.Snapshot    `json:"codex"`
-	Grok        codexusage.Snapshot    `json:"grok"`
+	Codex       quota.Snapshot         `json:"codex"`
+	Grok        quota.Snapshot         `json:"grok"`
 	Activity    codexactivity.Snapshot `json:"activity"`
 }
 
@@ -54,17 +54,17 @@ func (state *state) snapshot() stateResponse {
 
 // newHandler 提供协议 v7 的状态快照、收藏管理和应用切换目标接口。
 func newHandler(
-	usageProvider func() codexusage.Snapshot,
+	usageProvider func() quota.Snapshot,
 	activityProvider func() codexactivity.Snapshot,
 	stores ...*shortcutStore,
 ) http.Handler {
 	return newSurfaceHandler(usageProvider, activityProvider, nil, nil, stores...)
 }
 
-func newSurfaceHandler(usageProvider func() codexusage.Snapshot, activityProvider func() codexactivity.Snapshot, grokProvider func() codexusage.Snapshot, gravityProvider func() antigravity.Snapshot, stores ...*shortcutStore) http.Handler {
+func newSurfaceHandler(usageProvider func() quota.Snapshot, activityProvider func() codexactivity.Snapshot, grokProvider func() quota.Snapshot, gravityProvider func() antigravity.Snapshot, stores ...*shortcutStore) http.Handler {
 	if usageProvider == nil {
-		usageProvider = func() codexusage.Snapshot {
-			return codexusage.Snapshot{Status: codexusage.StatusLoading}
+		usageProvider = func() quota.Snapshot {
+			return quota.Snapshot{Status: quota.StatusLoading}
 		}
 	}
 	if activityProvider == nil {
@@ -73,7 +73,7 @@ func newSurfaceHandler(usageProvider func() codexusage.Snapshot, activityProvide
 		}
 	}
 	if grokProvider == nil {
-		grokProvider = func() codexusage.Snapshot { return codexusage.Snapshot{Status: codexusage.StatusLoading} }
+		grokProvider = func() quota.Snapshot { return quota.Snapshot{Status: quota.StatusLoading} }
 	}
 	if gravityProvider == nil {
 		gravityProvider = func() antigravity.Snapshot { return antigravity.Snapshot{} }

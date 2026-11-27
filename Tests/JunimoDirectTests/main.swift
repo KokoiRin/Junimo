@@ -69,6 +69,16 @@ expect(gate.observe(nil) == nil, "An empty poll should not notify")
 let next = CodexCompletionEvent(id: "turn-next", threadId: "thread-next", title: "下一个任务", completedAt: 3)
 expect(gate.observe(next) == next, "A different stable turn should notify")
 
+// Antigravity 通知门应按到达顺序过滤重复事件，并在超过容量上限时淘汰最早记录。
+var gravityGate = AntigravityCompletionNotificationGate(capacity: 2)
+let g1 = AntigravityCompletion(id: "ag-1", title: "任务一")
+let g2 = AntigravityCompletion(id: "ag-2", title: "任务二")
+let g3 = AntigravityCompletion(id: "ag-3", title: "任务三")
+expect(gravityGate.observe([g1, g1, g2]) == [g1, g2], "Duplicate Antigravity events in the same poll should fire once")
+expect(gravityGate.observe([g1, g2]).isEmpty, "Previously delivered Antigravity events must not re-fire")
+expect(gravityGate.observe([g3]) == [g3], "New Antigravity events should fire and evict oldest beyond capacity")
+expect(gravityGate.observe([g1]) == [g1], "Evicted IDs should no longer be retained in memory")
+
 // 完成通知中的有效 Codex 任务 ID 应生成对应任务深链接，无效 ID 则交给应用级回退处理。
 let codexThreadID = "019d1f61-0dd7-7dd1-b6f4-0d64c4c162a1"
 expect(

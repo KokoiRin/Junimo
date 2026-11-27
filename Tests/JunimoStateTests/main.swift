@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import JunimoCore
 
@@ -328,6 +329,102 @@ func testAppShortcutsIgnoreReadOlderThanSave() async {
     guard store.items.isEmpty, store.revision == 2 else { fail("delayed read rolled back saved collection") }
 }
 
+// 首次启动失败或运行期间后端异常退出后，壳层应自动重连并在新后端从 revision 1 起步时正常恢复快照。
+final class RecoveringBackend: ShellBackendClient {
+    private let lock = NSLock()
+    var startAttempts = 0
+    var failStartsRemaining = 1
+    var failNextLoadAsExited = false
+    var nextSnapshot = SurfaceState(
+        revision: 5,
+        codex: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 88, windowDurationMinutes: 300)),
+        activity: CodexActivitySnapshot(status: .available, isWorking: true)
+    )
+
+    func start() async throws {
+        try withLock {
+            startAttempts += 1
+            if failStartsRemaining > 0 {
+                failStartsRemaining -= 1
+                throw BackendError.healthCheckTimedOut
+            }
+        }
+    }
+
+    func stop() {}
+
+    func loadState() async throws -> SurfaceState {
+        try withLock {
+            if failNextLoadAsExited {
+                failNextLoadAsExited = false
+                throw BackendError.backendExited
+            }
+            return nextSnapshot
+        }
+    }
+
+    private func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+}
+
+@MainActor
+func testShellStateRetriesStartupAndRecoversAfterBackendExit() async {
+    let backend = RecoveringBackend()
+    let state = ShellState(
+        backend: backend,
+        pollIntervalNanoseconds: 10_000_000,
+        retryDelayNanoseconds: 10_000_000
+    )
+    state.start()
+    defer { state.stop() }
+
+    await waitUntil("shell should recover after initial startup failure") {
+        state.surfaceState.codex.compactSummary == "88%" && backend.startAttempts == 2
+    }
+
+    backend.nextSnapshot = SurfaceState(
+        revision: 1,
+        codex: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 42, windowDurationMinutes: 300)),
+        activity: CodexActivitySnapshot(status: .available, isWorking: false)
+    )
+    backend.failNextLoadAsExited = true
+
+    await waitUntil("shell should restart backend after exit and accept restarted revision 1") {
+        state.surfaceState.codex.compactSummary == "42%" && backend.startAttempts == 3
+    }
+}
+
+// 后端仅递增 revision 而业务载荷未变时，ShellState 应更新内部版本防乱序，但不触发多余的 @Published 发布。
+@MainActor
+func testShellStateSkipsRedundantPublishWhenPayloadUnchanged() async {
+    let usage80 = CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 80, windowDurationMinutes: 300))
+    let usage75 = CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 75, windowDurationMinutes: 300))
+    let snapshots = [
+        SurfaceState(revision: 1, codex: usage80),
+        SurfaceState(revision: 2, codex: usage80),
+        SurfaceState(revision: 3, codex: usage75)
+    ]
+    let state = ShellState(
+        backend: FakeBackend(states: snapshots),
+        pollIntervalNanoseconds: 10_000_000,
+        retryDelayNanoseconds: 10_000_000
+    )
+    var publishedRevisions: [UInt64] = []
+    let cancellable = state.$surfaceState.dropFirst().sink { publishedRevisions.append($0.revision) }
+    defer { cancellable.cancel(); state.stop() }
+
+    state.start()
+    await waitUntil("changed payload should publish revision 3") {
+        state.surfaceState.codex.compactSummary == "75%"
+    }
+    guard publishedRevisions == [1, 3] else {
+        fail("published revisions = \(publishedRevisions), want [1, 3] without duplicate rev 2 publish")
+    }
+}
+
 Task { @MainActor in
     await testAppShortcutsRefreshAndRejectStaleEdits()
     await testAppShortcutsIgnoreReadOlderThanSave()
@@ -337,6 +434,8 @@ Task { @MainActor in
     testHoverExpansionPreference()
     await testActivityFailureKeepsUsageVisible()
     await testShellStateRejectsOlderSnapshots()
+    await testShellStateSkipsRedundantPublishWhenPayloadUnchanged()
+    await testShellStateRetriesStartupAndRecoversAfterBackendExit()
     await testQuickLaunchConfigurationHotReloadKeepsLastGoodCatalog()
     print("Junimo ShellState companion tests passed")
     exit(0)

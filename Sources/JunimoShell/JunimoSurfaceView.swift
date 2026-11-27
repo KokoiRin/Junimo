@@ -274,11 +274,13 @@ struct JunimoSurfaceView: View {
         }
     }
 
+    private static let iso8601Formatter = ISO8601DateFormatter()
+
     private func usageHelp(_ name: String, usage: CodexUsageSnapshot, working: Bool) -> String {
         var text = "\(name) 剩余用量：\(usage.compactSummary)"
         if working { text += "\n正在工作" }
         if let message = usage.message { text += "\n" + message }
-        if let timestamp = usage.refreshedAt, let date = ISO8601DateFormatter().date(from: timestamp) {
+        if let timestamp = usage.refreshedAt, let date = Self.iso8601Formatter.date(from: timestamp) {
             text += "\n更新于 " + date.formatted(date: .abbreviated, time: .shortened)
         }
         return text

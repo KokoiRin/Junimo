@@ -11,9 +11,11 @@ const recentThreadLimit = 12
 
 // Client 通过一个长生命周期 Codex app-server 读取最近会话的持久化 turn 状态。
 type Client struct {
-	mu      sync.Mutex
-	session *codexappserver.Session
-	cache   map[string]Thread
+	mu           sync.Mutex
+	session      *codexappserver.Session
+	cache        map[string]Thread
+	workingMu    sync.Mutex
+	workingCache workingCache
 }
 
 // NewClient 创建延迟启动的活动读取客户端。

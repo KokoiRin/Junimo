@@ -90,6 +90,11 @@ public struct CodexActivitySnapshot: Codable, Equatable {
 public struct AntigravityCompletion: Codable, Equatable {
     public let id: String
     public let title: String
+
+    public init(id: String, title: String) {
+        self.id = id
+        self.title = title
+    }
 }
 
 public struct AntigravitySnapshot: Codable, Equatable {
@@ -127,5 +132,12 @@ public struct SurfaceState: Codable, Equatable {
         self.codex = codex
         self.grok = grok
         self.activity = activity
+    }
+
+    public func hasSamePayload(as other: SurfaceState) -> Bool {
+        antigravity == other.antigravity
+            && codex == other.codex
+            && grok == other.grok
+            && activity == other.activity
     }
 }

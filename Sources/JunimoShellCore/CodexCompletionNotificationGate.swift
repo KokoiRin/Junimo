@@ -15,3 +15,31 @@ public struct CodexCompletionNotificationGate {
         return event
     }
 }
+
+// AntigravityCompletionNotificationGate 使用有界集合对 Antigravity 完成事件去重，避免在 AppKit 壳层维护线性数组。
+public struct AntigravityCompletionNotificationGate {
+    private let capacity: Int
+    private var seenOrder: [String] = []
+    private var seenSet: Set<String> = []
+
+    public init(capacity: Int = 512) {
+        self.capacity = max(1, capacity)
+    }
+
+    public mutating func observe(_ events: [AntigravityCompletion]?) -> [AntigravityCompletion] {
+        guard let events, !events.isEmpty else { return [] }
+        var fresh: [AntigravityCompletion] = []
+        for event in events where seenSet.insert(event.id).inserted {
+            seenOrder.append(event.id)
+            fresh.append(event)
+        }
+        if seenOrder.count > capacity {
+            let overflow = seenOrder.count - capacity
+            for removed in seenOrder.prefix(overflow) {
+                seenSet.remove(removed)
+            }
+            seenOrder.removeFirst(overflow)
+        }
+        return fresh
+    }
+}

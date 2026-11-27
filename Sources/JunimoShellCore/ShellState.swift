@@ -11,13 +11,22 @@ public final class ShellState: ObservableObject {
 
     private let backend: ShellBackendClient
     private let defaults: UserDefaults
+    private let pollIntervalNanoseconds: UInt64
+    private let retryDelayNanoseconds: UInt64
     private static let hoverExpansionKey = "notch.hoverExpansionEnabled"
     private var refreshTask: Task<Void, Never>?
     private var latestRevision: UInt64?
 
-    public init(backend: ShellBackendClient = GoBackendClient(), defaults: UserDefaults = .standard) {
+    public init(
+        backend: ShellBackendClient = GoBackendClient(),
+        defaults: UserDefaults = .standard,
+        pollIntervalNanoseconds: UInt64 = 1_000_000_000,
+        retryDelayNanoseconds: UInt64 = 2_000_000_000
+    ) {
         self.backend = backend
         self.defaults = defaults
+        self.pollIntervalNanoseconds = pollIntervalNanoseconds
+        self.retryDelayNanoseconds = retryDelayNanoseconds
         hoverExpansionEnabled = defaults.object(forKey: Self.hoverExpansionKey) as? Bool ?? true
     }
 
@@ -31,13 +40,7 @@ public final class ShellState: ObservableObject {
         latestRevision = nil
         refreshTask = Task { [weak self] in
             guard let self else { return }
-            do {
-                try await backend.start()
-                accept(try await backend.loadState())
-                await pollBackend()
-            } catch {
-                // 保留 loading 或最后成功快照；下一次 start 会重新建立连接。
-            }
+            await self.runLifecycle()
         }
     }
 
@@ -72,27 +75,68 @@ public final class ShellState: ObservableObject {
         expansionDidChange?(expanded)
     }
 
-    private func pollBackend() async {
+    // 后端启动失败或运行中途退出时按退避间隔自动重连，避免外壳永久停留在 loading 或失联状态。
+    private func runLifecycle() async {
+        var connected = false
+        var retryDelay = retryDelayNanoseconds
+        let maxRetryDelay = max(retryDelayNanoseconds, 15_000_000_000)
+
         while !Task.isCancelled {
-            do {
-                accept(try await backend.loadState())
-            } catch {
-                if !Task.isCancelled {
-                    if surfaceState.activity.isWorking == true { surfaceState.activity.isWorking = nil }
-                    if surfaceState.antigravity?.isAppRunning != nil { surfaceState.antigravity?.isAppRunning = nil }
-                    if surfaceState.antigravity?.isWorking != nil { surfaceState.antigravity?.isWorking = nil }
+            if !connected {
+                do {
+                    try await backend.start()
+                    connected = true
+                    latestRevision = nil
+                    retryDelay = retryDelayNanoseconds
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    clearTransientWorkingState()
+                    try? await Task.sleep(nanoseconds: retryDelay)
+                    retryDelay = min(retryDelay * 2, maxRetryDelay)
+                    continue
                 }
             }
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+
+            do {
+                accept(try await backend.loadState())
+                try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
+            } catch {
+                guard !Task.isCancelled else { return }
+                clearTransientWorkingState()
+                if shouldRestartBackend(after: error) {
+                    backend.stop()
+                    connected = false
+                    latestRevision = nil
+                    try? await Task.sleep(nanoseconds: retryDelay)
+                    retryDelay = min(retryDelay * 2, maxRetryDelay)
+                } else {
+                    try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
+                }
+            }
         }
     }
 
-    // accept 只接受严格更新的 Go 快照，防止网络乱序使活动或用量倒退。
+    private func clearTransientWorkingState() {
+        if surfaceState.activity.isWorking == true { surfaceState.activity.isWorking = nil }
+        if surfaceState.antigravity?.isAppRunning != nil { surfaceState.antigravity?.isAppRunning = nil }
+        if surfaceState.antigravity?.isWorking != nil { surfaceState.antigravity?.isWorking = nil }
+    }
+
+    private func shouldRestartBackend(after error: Error) -> Bool {
+        guard let backendError = error as? BackendError else { return false }
+        return backendError == .backendExited || backendError == .instanceMismatch
+    }
+
+    // accept 只接受严格更新的 Go 快照，且在业务载荷未变时不重复发布，避免每秒触发无效 SwiftUI 重绘。
     private func accept(_ snapshot: SurfaceState) {
         if let latestRevision, snapshot.revision <= latestRevision {
             return
         }
+        let isFirstForSession = (latestRevision == nil)
         latestRevision = snapshot.revision
+        if !isFirstForSession && surfaceState.hasSamePayload(as: snapshot) {
+            return
+        }
         surfaceState = snapshot
     }
 }

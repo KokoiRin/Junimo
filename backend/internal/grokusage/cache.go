@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"junimo/backend/internal/codexusage"
+	"junimo/backend/internal/quota"
 )
 
 type Client struct {
@@ -55,19 +55,19 @@ type cache struct {
 	} `json:"value"`
 }
 
-func (c *Client) Query(ctx context.Context) (codexusage.Snapshot, error) {
+func (c *Client) Query(ctx context.Context) (quota.Snapshot, error) {
 	var config settings
 	data, err := os.ReadFile(c.settingsPath)
 	if err != nil || json.Unmarshal(data, &config) != nil || config.ActiveAccountScope == "" {
-		return codexusage.Snapshot{}, errors.New("请打开并登录 Grok Bot，等待用量刷新")
+		return quota.Snapshot{}, errors.New("请打开并登录 Grok Bot，等待用量刷新")
 	}
 	entries, err := os.ReadDir(c.cacheDir)
 	if err != nil {
-		return codexusage.Snapshot{}, errors.New("尚未找到 Grok Bot 用量缓存，请打开 Usage & Billing")
+		return quota.Snapshot{}, errors.New("尚未找到 Grok Bot 用量缓存，请打开 Usage & Billing")
 	}
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
-			return codexusage.Snapshot{}, err
+			return quota.Snapshot{}, err
 		}
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".blob") {
 			continue
@@ -88,21 +88,21 @@ func (c *Client) Query(ctx context.Context) (codexusage.Snapshot, error) {
 		}
 		data, err := os.ReadFile(filepath.Join(c.cacheDir, entry.Name()))
 		if err != nil {
-			return codexusage.Snapshot{}, errors.New("无法读取 Grok Bot 用量缓存")
+			return quota.Snapshot{}, errors.New("无法读取 Grok Bot 用量缓存")
 		}
 		snapshot, err := parse(data, config, c.now())
 		if err != nil {
-			return codexusage.Snapshot{}, err
+			return quota.Snapshot{}, err
 		}
 		// Recheck the selected account/team so an in-flight switch cannot show another account's quota.
 		latest, err := os.ReadFile(c.settingsPath)
 		var current settings
 		if err != nil || json.Unmarshal(latest, &current) != nil || current.ActiveAccountScope != config.ActiveAccountScope || teamID(current) != teamID(config) {
-			return codexusage.Snapshot{}, errors.New("Grok Bot 账户正在切换，等待用量刷新")
+			return quota.Snapshot{}, errors.New("Grok Bot 账户正在切换，等待用量刷新")
 		}
 		return snapshot, nil
 	}
-	return codexusage.Snapshot{}, errors.New("当前 Grok Bot 账户尚无用量缓存，请打开 Usage & Billing")
+	return quota.Snapshot{}, errors.New("当前 Grok Bot 账户尚无用量缓存，请打开 Usage & Billing")
 }
 
 func teamID(s settings) int64 {
@@ -112,10 +112,10 @@ func teamID(s settings) int64 {
 	return 0
 }
 
-func parse(data []byte, config settings, now time.Time) (codexusage.Snapshot, error) {
+func parse(data []byte, config settings, now time.Time) (quota.Snapshot, error) {
 	var cached cache
 	if json.Unmarshal(data, &cached) != nil || (cached.SchemaVersion != 2 && cached.SchemaVersion != 3) || cached.Value.Kind != "present" {
-		return codexusage.Snapshot{}, errors.New("Grok Bot 用量缓存格式暂不支持")
+		return quota.Snapshot{}, errors.New("Grok Bot 用量缓存格式暂不支持")
 	}
 	v := cached.Value
 	var selected int64
@@ -123,33 +123,33 @@ func parse(data []byte, config settings, now time.Time) (codexusage.Snapshot, er
 		selected = *v.SelectedTeamID
 	}
 	if selected != teamID(config) {
-		return codexusage.Snapshot{}, errors.New("Grok Bot 团队已切换，等待用量刷新")
+		return quota.Snapshot{}, errors.New("Grok Bot 团队已切换，等待用量刷新")
 	}
 	u := v.Reading.Usage
 	if u == nil || u.PercentUsed == nil || math.IsNaN(*u.PercentUsed) || math.IsInf(*u.PercentUsed, 0) || !u.HasNonZeroIncludedLimit {
-		return codexusage.Snapshot{}, errors.New("Grok Bot 未提供可用的个人额度")
+		return quota.Snapshot{}, errors.New("Grok Bot 未提供可用的个人额度")
 	}
 	// v3 can identify the team actually queried independently of the selected-team envelope.
 	if len(u.ReadForTeamID) > 0 {
 		var readForTeamID *int64
 		if err := json.Unmarshal(u.ReadForTeamID, &readForTeamID); err != nil {
-			return codexusage.Snapshot{}, errors.New("Grok Bot 用量缓存格式暂不支持")
+			return quota.Snapshot{}, errors.New("Grok Bot 用量缓存格式暂不支持")
 		}
 		var readFor int64
 		if readForTeamID != nil {
 			readFor = *readForTeamID
 			if readFor <= 0 {
-				return codexusage.Snapshot{}, errors.New("Grok Bot 用量缓存格式暂不支持")
+				return quota.Snapshot{}, errors.New("Grok Bot 用量缓存格式暂不支持")
 			}
 		}
 		if readFor != selected {
-			return codexusage.Snapshot{}, errors.New("Grok Bot 团队已切换，等待用量刷新")
+			return quota.Snapshot{}, errors.New("Grok Bot 团队已切换，等待用量刷新")
 		}
 	}
 	at := time.UnixMilli(v.Reading.ReadAtMs)
 	if v.Reading.ReadAtMs <= 0 || at.After(now.Add(time.Minute)) || now.Sub(at) >= 24*time.Hour || v.ExpiresAtMs <= now.UnixMilli() || u.NextResetMs == nil || *u.NextResetMs <= now.UnixMilli() {
-		return codexusage.Snapshot{}, errors.New("Grok Bot 用量缓存已过期，请打开 Usage & Billing 刷新")
+		return quota.Snapshot{}, errors.New("Grok Bot 用量缓存已过期，请打开 Usage & Billing 刷新")
 	}
 	remaining := int(math.Round(100 - math.Min(100, math.Max(0, *u.PercentUsed))))
-	return codexusage.Snapshot{Status: codexusage.StatusAvailable, Primary: &codexusage.Window{RemainingPercent: remaining, WindowDurationMinutes: 7 * 24 * 60, ResetsAt: *u.NextResetMs / 1000}, RefreshedAt: at.UTC().Format(time.RFC3339), Message: "来自 Grok Bot 本机用量缓存，随原应用刷新"}, nil
+	return quota.Snapshot{Status: quota.StatusAvailable, Primary: &quota.Window{RemainingPercent: remaining, WindowDurationMinutes: 7 * 24 * 60, ResetsAt: *u.NextResetMs / 1000}, RefreshedAt: at.UTC().Format(time.RFC3339), Message: "来自 Grok Bot 本机用量缓存，随原应用刷新"}, nil
 }

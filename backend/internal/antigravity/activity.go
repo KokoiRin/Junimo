@@ -16,9 +16,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
-	"junimo/backend/internal/codexusage"
+	"junimo/backend/internal/quota"
 )
 
 const idle = "CASCADE_RUN_STATUS_IDLE"
@@ -45,10 +46,10 @@ type Event struct {
 	Title string `json:"title"`
 }
 type Snapshot struct {
-	IsAppRunning *bool                `json:"isAppRunning"`
-	WeeklyQuota  *codexusage.Snapshot `json:"weeklyQuota,omitempty"`
-	IsWorking    *bool                `json:"isWorking"`
-	Events       []Event              `json:"events,omitempty"`
+	IsAppRunning *bool           `json:"isAppRunning"`
+	WeeklyQuota  *quota.Snapshot `json:"weeklyQuota,omitempty"`
+	IsWorking    *bool           `json:"isWorking"`
+	Events       []Event         `json:"events,omitempty"`
 }
 
 type Source struct{ db, events string }
@@ -152,14 +153,22 @@ func conversationKey(id string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+const (
+	runningRevalidateInterval = 30 * time.Second
+	stoppedProbeInterval      = 6 * time.Second
+)
+
 type Monitor struct {
-	source   Source
-	started  time.Time
-	version  dbStamp
-	tasks    []task
-	loaded   bool
-	mu       sync.RWMutex
-	snapshot Snapshot
+	source          Source
+	started         time.Time
+	version         dbStamp
+	tasks           []task
+	loaded          bool
+	appPID          int
+	lastProcessScan time.Time
+	lastAppRunning  *bool
+	mu              sync.RWMutex
+	snapshot        Snapshot
 }
 
 func NewMonitor(source Source) *Monitor { return &Monitor{source: source, started: time.Now()} }
@@ -170,9 +179,10 @@ func (m *Monitor) Snapshot() Snapshot {
 }
 
 func (m *Monitor) refresh(ctx context.Context, now time.Time) {
-	snapshot := Snapshot{IsAppRunning: desktopRunning(ctx)}
 	version := m.source.version()
-	if !m.loaded || m.version != version {
+	dbChanged := !m.loaded || m.version != version
+	snapshot := Snapshot{IsAppRunning: m.checkDesktopRunning(ctx, now, dbChanged)}
+	if dbChanged {
 		rows, err := m.source.tasks(ctx, version)
 		m.tasks, m.version, m.loaded = rows, version, err == nil
 	}
@@ -185,16 +195,47 @@ func (m *Monitor) refresh(ctx context.Context, now time.Time) {
 	m.mu.Unlock()
 }
 
-func desktopRunning(ctx context.Context) *bool {
-	err := exec.CommandContext(ctx, "/usr/bin/pgrep", "-U", strconv.Itoa(os.Getuid()), "-x", "Antigravity").Run()
+// checkDesktopRunning 在已确认 PID 存活期间用 kill(pid, 0) 零子进程探活，仅在退出、超时复核或数据库变化时调用 pgrep。
+func (m *Monitor) checkDesktopRunning(ctx context.Context, now time.Time, dbChanged bool) *bool {
+	if m.appPID > 0 && now.Sub(m.lastProcessScan) < runningRevalidateInterval {
+		if processAlive(m.appPID) {
+			return new(true)
+		}
+		m.appPID = 0
+	}
+	if m.appPID == 0 && m.lastAppRunning != nil && !*m.lastAppRunning && !dbChanged && now.Sub(m.lastProcessScan) < stoppedProbeInterval {
+		return new(false)
+	}
+	pid, running := desktopRunning(ctx)
+	m.appPID = pid
+	m.lastProcessScan = now
+	m.lastAppRunning = running
+	return running
+}
+
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+func desktopRunning(ctx context.Context) (int, *bool) {
+	out, err := exec.CommandContext(ctx, "/usr/bin/pgrep", "-U", strconv.Itoa(os.Getuid()), "-x", "Antigravity").Output()
 	if err == nil {
-		return new(true)
+		for _, field := range strings.Fields(string(out)) {
+			if pid, convErr := strconv.Atoi(field); convErr == nil && pid > 0 {
+				return pid, new(true)
+			}
+		}
+		return 0, new(true)
 	}
 	var exited *exec.ExitError
 	if errors.As(err, &exited) && exited.ExitCode() == 1 {
-		return new(false)
+		return 0, new(false)
 	}
-	return nil
+	return 0, nil
 }
 
 func workingState(tasks []task, appRunning *bool) *bool {

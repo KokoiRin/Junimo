@@ -7,13 +7,13 @@ import (
 	"testing"
 
 	"junimo/backend/internal/codexactivity"
-	"junimo/backend/internal/codexusage"
+	"junimo/backend/internal/quota"
 )
 
 // 轻量后端收到健康检查时必须声明协议 v7，让旧 Swift 客户端拒绝不兼容快照。
 func TestHealthReportsProtocolSeven(t *testing.T) {
 	handler := newHandler(
-		func() codexusage.Snapshot { return codexusage.Snapshot{Status: codexusage.StatusLoading} },
+		func() quota.Snapshot { return quota.Snapshot{Status: quota.StatusLoading} },
 		func() codexactivity.Snapshot { return codexactivity.Snapshot{Status: codexactivity.StatusLoading} },
 	)
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -54,10 +54,10 @@ func TestResponsesIdentifyTheirInstance(t *testing.T) {
 // v7 状态读取分别公开 Codex、Grok 用量和任务活动，让任一用量源失败不影响另一来源。
 func TestStateContainsOnlyUsageAndActivity(t *testing.T) {
 	handler := newHandler(
-		func() codexusage.Snapshot {
-			return codexusage.Snapshot{
-				Status:  codexusage.StatusAvailable,
-				Primary: &codexusage.Window{RemainingPercent: 73, WindowDurationMinutes: 300},
+		func() quota.Snapshot {
+			return quota.Snapshot{
+				Status:  quota.StatusAvailable,
+				Primary: &quota.Window{RemainingPercent: 73, WindowDurationMinutes: 300},
 			}
 		},
 		func() codexactivity.Snapshot {
@@ -93,9 +93,9 @@ func TestStateContainsOnlyUsageAndActivity(t *testing.T) {
 // Codex 不可用而 Grok 仍有周额度时，状态接口必须保留 Grok 的独立百分比、来源与时间，不把失败扩散到另一个来源。
 func TestGrokUsageIsIndependent(t *testing.T) {
 	handler := newSurfaceHandler(
-		func() codexusage.Snapshot { return codexusage.Snapshot{Status: codexusage.StatusUnavailable} }, nil,
-		func() codexusage.Snapshot {
-			return codexusage.Snapshot{Status: codexusage.StatusAvailable, Primary: &codexusage.Window{RemainingPercent: 15, WindowDurationMinutes: 10080}, Message: "本机缓存", RefreshedAt: "2026-11-06T15:59:00Z"}
+		func() quota.Snapshot { return quota.Snapshot{Status: quota.StatusUnavailable} }, nil,
+		func() quota.Snapshot {
+			return quota.Snapshot{Status: quota.StatusAvailable, Primary: &quota.Window{RemainingPercent: 15, WindowDurationMinutes: 10080}, Message: "本机缓存", RefreshedAt: "2026-11-06T15:59:00Z"}
 		}, nil,
 	)
 	response := httptest.NewRecorder()
@@ -104,7 +104,7 @@ func TestGrokUsageIsIndependent(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &current); err != nil {
 		t.Fatal(err)
 	}
-	if current.Codex.Status != codexusage.StatusUnavailable || current.Grok.Status != codexusage.StatusAvailable || current.Grok.Primary == nil || current.Grok.Primary.RemainingPercent != 15 || current.Grok.Message != "本机缓存" || current.Grok.RefreshedAt != "2026-11-06T15:59:00Z" {
+	if current.Codex.Status != quota.StatusUnavailable || current.Grok.Status != quota.StatusAvailable || current.Grok.Primary == nil || current.Grok.Primary.RemainingPercent != 15 || current.Grok.Message != "本机缓存" || current.Grok.RefreshedAt != "2026-11-06T15:59:00Z" {
 		t.Fatalf("independent state = %+v", current)
 	}
 }

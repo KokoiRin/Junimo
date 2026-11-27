@@ -14,6 +14,7 @@ import (
 	"junimo/backend/internal/codexappserver"
 	"junimo/backend/internal/codexusage"
 	"junimo/backend/internal/grokusage"
+	"junimo/backend/internal/quota"
 )
 
 const (
@@ -33,8 +34,8 @@ func Run(ctx context.Context) error {
 		go cancelWhenParentExits(ctx, cancel, os.Getppid(), os.Getppid)
 	}
 	executable := codexappserver.ResolveExecutable()
-	usageMonitor := codexusage.NewMonitor(codexusage.NewClient(executable))
-	grokMonitor := codexusage.NewMonitor(grokusage.NewClient())
+	usageMonitor := quota.NewMonitor(codexusage.NewClient(executable))
+	grokMonitor := quota.NewMonitor(grokusage.NewClient())
 	activityMonitor := codexactivity.NewMonitor(codexactivity.NewClient(executable))
 	monitorContext, stopMonitors := context.WithCancel(ctx)
 	defer stopMonitors()
@@ -45,11 +46,11 @@ func Run(ctx context.Context) error {
 	var gravitySnapshot func() antigravity.Snapshot
 	if home, err := os.UserHomeDir(); err == nil {
 		gravity := antigravity.NewMonitor(antigravity.DesktopSource(home))
-		quota := codexusage.NewMonitor(antigravity.WeeklyQuota{DaemonDir: filepath.Join(home, ".gemini", "antigravity", "daemon")})
-		quota.Start(monitorContext, time.Minute, 8*time.Second)
+		weeklyQuota := quota.NewMonitor(antigravity.WeeklyQuota{DaemonDir: filepath.Join(home, ".gemini", "antigravity", "daemon")})
+		weeklyQuota.Start(monitorContext, time.Minute, 8*time.Second)
 		gravitySnapshot = func() antigravity.Snapshot {
 			snapshot := gravity.Snapshot()
-			weekly := quota.Snapshot()
+			weekly := weeklyQuota.Snapshot()
 			snapshot.WeeklyQuota = &weekly
 			return snapshot
 		}

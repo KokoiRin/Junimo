@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"junimo/backend/internal/codexusage"
+	"junimo/backend/internal/quota"
 )
 
 const quotaMethod = "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
@@ -72,7 +72,7 @@ func (hub desktopHub) dial(ctx context.Context, network, address string) (net.Co
 
 type WeeklyQuota struct{ DaemonDir string }
 
-func (q WeeklyQuota) Query(ctx context.Context) (codexusage.Snapshot, error) {
+func (q WeeklyQuota) Query(ctx context.Context) (quota.Snapshot, error) {
 	paths, _ := filepath.Glob(filepath.Join(q.DaemonDir, "hub_*.json"))
 	var active *desktopHub
 	for _, path := range paths {
@@ -81,17 +81,17 @@ func (q WeeklyQuota) Query(ctx context.Context) (codexusage.Snapshot, error) {
 			continue
 		}
 		if active != nil {
-			return codexusage.Snapshot{}, errors.New("有多个 Antigravity 服务，暂时无法确认当前额度")
+			return quota.Snapshot{}, errors.New("有多个 Antigravity 服务，暂时无法确认当前额度")
 		}
 		active = &hub
 	}
 	if active == nil {
-		return codexusage.Snapshot{}, errors.New("等待 Antigravity 桌面服务")
+		return quota.Snapshot{}, errors.New("等待 Antigravity 桌面服务")
 	}
 	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(active.Port))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+address+quotaMethod, strings.NewReader("{}"))
 	if err != nil {
-		return codexusage.Snapshot{}, err
+		return quota.Snapshot{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
@@ -102,16 +102,16 @@ func (q WeeklyQuota) Query(ctx context.Context) (codexusage.Snapshot, error) {
 	}
 	res, err := client.Do(req)
 	if err != nil {
-		return codexusage.Snapshot{}, errors.New("未能读取 Antigravity 额度")
+		return quota.Snapshot{}, errors.New("未能读取 Antigravity 额度")
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return codexusage.Snapshot{}, errors.New("Antigravity 暂未提供额度")
+		return quota.Snapshot{}, errors.New("Antigravity 暂未提供额度")
 	}
 	return geminiWeekly(io.LimitReader(res.Body, 1<<20), time.Now())
 }
 
-func geminiWeekly(input io.Reader, now time.Time) (codexusage.Snapshot, error) {
+func geminiWeekly(input io.Reader, now time.Time) (quota.Snapshot, error) {
 	var payload struct {
 		Response struct {
 			Groups []struct {
@@ -126,7 +126,7 @@ func geminiWeekly(input io.Reader, now time.Time) (codexusage.Snapshot, error) {
 		}
 	}
 	if err := json.NewDecoder(input).Decode(&payload); err != nil {
-		return codexusage.Snapshot{}, errors.New("无法读取 Antigravity 额度格式")
+		return quota.Snapshot{}, errors.New("无法读取 Antigravity 额度格式")
 	}
 	for _, group := range payload.Response.Groups {
 		if !strings.EqualFold(group.DisplayName, "Gemini Models") {
@@ -136,12 +136,12 @@ func geminiWeekly(input io.Reader, now time.Time) (codexusage.Snapshot, error) {
 			if b.BucketID != "gemini-weekly" || b.Window != "weekly" || b.RemainingFraction == nil || *b.RemainingFraction < 0 || *b.RemainingFraction > 1 || !b.ResetTime.After(now) {
 				continue
 			}
-			return codexusage.Snapshot{
-				Status:      codexusage.StatusAvailable,
-				Primary:     &codexusage.Window{RemainingPercent: int(math.Round(*b.RemainingFraction * 100)), WindowDurationMinutes: 7 * 24 * 60, ResetsAt: b.ResetTime.Unix()},
+			return quota.Snapshot{
+				Status:      quota.StatusAvailable,
+				Primary:     &quota.Window{RemainingPercent: int(math.Round(*b.RemainingFraction * 100)), WindowDurationMinutes: 7 * 24 * 60, ResetsAt: b.ResetTime.Unix()},
 				RefreshedAt: now.UTC().Format(time.RFC3339),
 			}, nil
 		}
 	}
-	return codexusage.Snapshot{}, errors.New("未找到当前 Gemini 每周额度")
+	return quota.Snapshot{}, errors.New("未找到当前 Gemini 每周额度")
 }

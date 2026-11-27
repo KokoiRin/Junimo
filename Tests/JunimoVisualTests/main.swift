@@ -220,14 +220,20 @@ func testAppBarWindowVisibility() async {
     let presentation = AppBarPresentation(defaults: defaults)
     let backend = VisualShortcutsBackend()
     let state = ShellState()
-    let controller = AppBarController(state: state, backend: backend, presentation: presentation, enableGlobalGestures: false)
+    let controller = AppBarController(
+        state: state,
+        backend: backend,
+        presentation: presentation,
+        enableGlobalGestures: false,
+        statusBoundaryProvider: { screen, _ in screen.frame.maxX - 280 }
+    )
     defer { controller.stop(); defaults.removePersistentDomain(forName: suite) }
     func waitFor(_ expected: Bool) async {
         for _ in 0..<100 {
             if controller.isVisible == expected { return }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
-        fail("app bar visibility should be \(expected)")
+        fail("app bar visibility should be \(expected) (items=\(controller.store.items.count), availableWidth=\(presentation.availableWidth), enabled=\(presentation.enabled), expanded=\(state.isExpanded))")
     }
     await waitFor(true)
     state.pointerEntered()
@@ -434,7 +440,18 @@ func testUsageRingsRender(appOpen: Bool, working: Bool) async {
     }
 }
 
+// 胶囊命中计算应对中心与直边内部返回 true，对圆角外侧和越界坐标返回 false，与 AppKit 视觉轮廓一致。
+func testAppBarCapsuleHitTesting() {
+    let size = NSSize(width: 120, height: 30)
+    guard AppBarController.capsuleContains(point: NSPoint(x: 60, y: 15), in: size) else { fail("capsule center must hit") }
+    guard AppBarController.capsuleContains(point: NSPoint(x: 15, y: 1), in: size) else { fail("straight edge inside capsule must hit") }
+    guard !AppBarController.capsuleContains(point: NSPoint(x: 1, y: 1), in: size) else { fail("outside rounded corner must pass through") }
+    guard !AppBarController.capsuleContains(point: NSPoint(x: 119, y: 29), in: size) else { fail("outside top-right corner must pass through") }
+    guard !AppBarController.capsuleContains(point: NSPoint(x: -1, y: 15), in: size) else { fail("out-of-bounds point must pass through") }
+}
+
 Task { @MainActor in
+    testAppBarCapsuleHitTesting()
     await testUsageRingsRender(appOpen: false, working: false)
     await testUsageRingsRender(appOpen: true, working: false)
     await testUsageRingsRender(appOpen: true, working: true)

@@ -23,6 +23,7 @@ final class AppBarController: NSObject {
     private let backend: AppShortcutsBackend
     private let swipeMonitor = AppBarSwipeMonitor()
     private let enableGlobalGestures: Bool
+    private let statusBoundaryProvider: @MainActor (NSScreen, CGFloat) -> CGFloat
     private var swipeTask: Task<Void, Never>?
     private var swipeEnabled = UserDefaults.standard.object(forKey: "appBar.commandSwipe") as? Bool ?? true
     var swipeMenuTitle: String {
@@ -42,10 +43,12 @@ final class AppBarController: NSObject {
     private var activationTasks: [UUID: Task<Void, Never>] = [:]
 
     init(state: ShellState, backend: AppShortcutsBackend, presentation: AppBarPresentation? = nil,
-         enableGlobalGestures: Bool = true) {
+         enableGlobalGestures: Bool = true,
+         statusBoundaryProvider: @escaping @MainActor (NSScreen, CGFloat) -> CGFloat = JunimoScreenGeometry.statusBoundary) {
         self.state = state
         self.backend = backend
         self.enableGlobalGestures = enableGlobalGestures
+        self.statusBoundaryProvider = statusBoundaryProvider
         self.presentation = presentation ?? AppBarPresentation()
         store = AppShortcutsStore(backend: backend)
         panel = AppBarPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -78,9 +81,18 @@ final class AppBarController: NSObject {
             .sink { [weak self] _ in Task { @MainActor [weak self] in self?.updateLayout() } }
             .store(in: &observations)
         let center = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
-                     NSWorkspace.didActivateApplicationNotification, NSWorkspace.didHideApplicationNotification,
-                     NSWorkspace.didUnhideApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
+        for name in [NSWorkspace.didActivateApplicationNotification,
+                     NSWorkspace.didHideApplicationNotification,
+                     NSWorkspace.didUnhideApplicationNotification] {
+            workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.presentation.refreshActiveApplication()
+                }
+            })
+        }
+        for name in [NSWorkspace.didLaunchApplicationNotification,
+                     NSWorkspace.didTerminateApplicationNotification,
+                     NSWorkspace.activeSpaceDidChangeNotification] {
             workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -287,7 +299,7 @@ final class AppBarController: NSObject {
         let originX = max(JunimoScreenGeometry.notchRight(on: screen) + 6,
                           screen.frame.midX + JunimoScreenGeometry.notchClearance(on: screen) + 4)
         // 系统不公开“菜单栏空闲区域”，保守预留右侧状态区，并进一步避开可读到的状态窗口。
-        let boundary = JunimoScreenGeometry.statusBoundary(on: screen, after: originX)
+        let boundary = statusBoundaryProvider(screen, originX)
         let available = min(AppBarLayout.maximumWidth, max(0, boundary - originX - 8))
         let height = max(AppBarLayout.cellSize, screen.safeAreaInsets.top)
         let originY = screen.frame.maxY - height + (height - AppBarLayout.cellSize) / 2
@@ -301,11 +313,37 @@ final class AppBarController: NSObject {
     }
 
     private func updateMousePassthrough() {
+        guard panel.isVisible else { return }
         let point = NSEvent.mouseLocation
-        let local = NSPoint(x: point.x - panel.frame.minX, y: point.y - panel.frame.minY)
-        let path = NSBezierPath(roundedRect: NSRect(origin: .zero, size: panel.frame.size),
-                                xRadius: panel.frame.height / 2, yRadius: panel.frame.height / 2)
-        panel.ignoresMouseEvents = !path.contains(local)
+        let frame = panel.frame
+        let shouldIgnore: Bool
+        if !frame.contains(point) {
+            shouldIgnore = true
+        } else {
+            let local = NSPoint(x: point.x - frame.minX, y: point.y - frame.minY)
+            shouldIgnore = !Self.capsuleContains(point: local, in: frame.size)
+        }
+        if panel.ignoresMouseEvents != shouldIgnore {
+            panel.ignoresMouseEvents = shouldIgnore
+        }
+    }
+
+    // 用纯几何计算判断胶囊命中，避免全局 120Hz 鼠标移动时反复构造 NSBezierPath。
+    nonisolated static func capsuleContains(point: NSPoint, in size: NSSize) -> Bool {
+        guard size.width > 0, size.height > 0,
+              point.x >= 0, point.x <= size.width,
+              point.y >= 0, point.y <= size.height else {
+            return false
+        }
+        let radius = min(size.width, size.height) / 2
+        if point.x >= radius && point.x <= size.width - radius {
+            return true
+        }
+        let centerX = point.x < radius ? radius : size.width - radius
+        let centerY = size.height / 2
+        let dx = point.x - centerX
+        let dy = point.y - centerY
+        return dx * dx + dy * dy <= radius * radius
     }
 }
 
@@ -330,6 +368,7 @@ enum JunimoScreenGeometry {
               let primary = NSScreen.screens.first else { return boundary }
         for window in windows {
             guard let pid = window[kCGWindowOwnerPID as String] as? Int32, pid != getpid(),
+                  (window[kCGWindowOwnerName as String] as? String) != "Junimo",
                   let layer = window[kCGWindowLayer as String] as? Int, layer >= Int(CGWindowLevelForKey(.statusWindow)),
                   let raw = window[kCGWindowBounds as String] as? [String: Any],
                   let bounds = CGRect(dictionaryRepresentation: raw as CFDictionary) else { continue }

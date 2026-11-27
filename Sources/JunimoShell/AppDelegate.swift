@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lifecycleWindow: NSWindow?
     private var activityObservation: AnyCancellable?
     private var completionNotificationGate = CodexCompletionNotificationGate()
-    private var deliveredAntigravityIDs: [String] = []
+    private var antigravityNotificationGate = AntigravityCompletionNotificationGate()
     private let notificationService = MacCodexCompletionNotificationService()
     private var allowsTermination = false
     private var pendingReopen = false
@@ -116,12 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if let event = completionNotificationGate.observe(snapshot.activity.completionEvent) {
                     notificationService.notifyCompletion(event)
                 }
-                for event in snapshot.antigravity?.events ?? [] where !deliveredAntigravityIDs.contains(event.id) {
-                    deliveredAntigravityIDs.append(event.id)
+                for event in antigravityNotificationGate.observe(snapshot.antigravity?.events) {
                     notificationService.notifyAntigravityCompletion(event)
-                }
-                if deliveredAntigravityIDs.count > 512 {
-                    deliveredAntigravityIDs.removeFirst(deliveredAntigravityIDs.count - 512)
                 }
             }
     }
