@@ -112,8 +112,8 @@ struct AppBarView: View {
         }
         .padding(.horizontal, 4)
         .foregroundStyle(.white.opacity(0.9))
-        .background(Color.black.opacity(0.94), in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 1))
+        .background(junimoSurfaceFill, in: Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.09), lineWidth: 1))
         .clipShape(Capsule())
         .contextMenu { Button("管理常用应用…", action: manage) }
         .accessibilityIdentifier("appBar.right")
@@ -133,12 +133,12 @@ struct AppBarIcon: View {
         }
         .frame(width: AppBarLayout.iconSize, height: AppBarLayout.iconSize)
         .frame(width: AppBarLayout.cellSize, height: AppBarLayout.cellSize)
-        .background(isActive ? Color.green.opacity(0.16) : .clear,
+        .background(isActive ? junimoAccent.opacity(0.16) : .clear,
                     in: RoundedRectangle(cornerRadius: 7).inset(by: 1.5))
         .overlay {
             if isActive {
                 RoundedRectangle(cornerRadius: 7).inset(by: 1.5)
-                    .stroke(Color.green.opacity(0.85), lineWidth: 1.25)
+                    .stroke(junimoAccent.opacity(0.85), lineWidth: 1.25)
             }
         }
         .accessibilityValue(isActive ? "当前应用" : "未选中")

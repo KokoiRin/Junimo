@@ -56,10 +56,10 @@ struct JunimoSurfaceView: View {
                 Spacer()
                 HStack(spacing: 8) {
                     if state.surfaceState.showsCodex {
-                        usageCard("Codex", usage: state.surfaceState.codex, accent: junimoAccent, working: codexWorking)
+                        usageCard("Codex", usage: state.surfaceState.codex, palette: .codex, working: codexWorking)
                     }
                     if state.surfaceState.showsGrok {
-                        usageCard("Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
+                        usageCard("Grok Bot", usage: state.surfaceState.grok, palette: .grok)
                     }
                 }
                 .layoutPriority(1)
@@ -127,7 +127,6 @@ struct JunimoSurfaceView: View {
         }
     }
 
-    private let antigravityAccent = Color(red: 0.78, green: 0.60, blue: 1)
     private var antigravitySummary: String {
         let activity = state.surfaceState.antigravity?.isWorking.map { $0 ? "正在工作" : "空闲" } ?? "状态未知"
         let weekly = state.surfaceState.antigravity?.weeklyQuota
@@ -138,12 +137,12 @@ struct JunimoSurfaceView: View {
     private var antigravityRing: some View {
         Group {
             if let weekly = state.surfaceState.antigravity?.weeklyQuota, weekly.status == .available {
-                usageRing(weekly, accent: antigravityAccent, working: state.surfaceState.antigravity?.isWorking == true)
+                usageRing(weekly, palette: .antigravity, working: state.surfaceState.antigravity?.isWorking == true)
             } else {
                 ZStack {
-                    Circle().stroke(antigravityAccent.opacity(0.38), lineWidth: 2)
+                    Circle().stroke(UsageRingPalette.antigravity.idle.opacity(0.38), lineWidth: 2)
                     if state.surfaceState.antigravity?.isWorking == true {
-                        WorkingQuotaArc(fraction: 0.35, accent: antigravityAccent)
+                        WorkingQuotaArc(fraction: 0.35, palette: .antigravity)
                     }
                 }
             }
@@ -154,22 +153,21 @@ struct JunimoSurfaceView: View {
         .accessibilityLabel(antigravitySummary)
     }
 
-    private let grokAccent = Color(red: 0.42, green: 0.72, blue: 1)
     private var codexWorking: Bool { state.surfaceState.activity.isWorking == true }
 
-    private func usageCard(_ name: String, usage: CodexUsageSnapshot, accent: Color, working: Bool = false) -> some View {
+    private func usageCard(_ name: String, usage: CodexUsageSnapshot, palette: UsageRingPalette, working: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text("\(name) 剩余")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.white.opacity(0.48))
             HStack(spacing: 7) {
-                usageRing(usage, accent: accent, working: working)
+                usageRing(usage, palette: palette, working: working)
                 Text(usage.compactSummary)
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
-                    .foregroundStyle(statusColor(usage, accent: accent))
+                    .foregroundStyle(statusColor(usage, accent: palette.idle))
             }
         }
         .padding(.horizontal, 12)
@@ -236,45 +234,46 @@ struct JunimoSurfaceView: View {
     private var agentUsageCapsule: some View {
         HStack(spacing: 12) {
             if state.surfaceState.showsCodex {
-                compactUsage(name: "Codex", usage: state.surfaceState.codex, accent: junimoAccent, working: codexWorking)
+                compactUsage(name: "Codex", usage: state.surfaceState.codex, palette: .codex, working: codexWorking)
             }
             if state.surfaceState.showsGrok {
-                compactUsage(name: "Grok Bot", usage: state.surfaceState.grok, accent: grokAccent)
+                compactUsage(name: "Grok Bot", usage: state.surfaceState.grok, palette: .grok)
             }
             if state.surfaceState.showsAntigravity { antigravityRing }
         }
         .padding(.horizontal, 10)
         .frame(height: 28)
-        .background(capsuleBackground, in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 1))
+        .background(junimoSurfaceFill, in: Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.09), lineWidth: 1))
         .shadow(color: .black.opacity(0.24), radius: 2)
     }
 
-    private func compactUsage(name: String, usage: CodexUsageSnapshot, accent: Color, working: Bool = false) -> some View {
-        usageRing(usage, accent: accent, working: working)
+    private func compactUsage(name: String, usage: CodexUsageSnapshot, palette: UsageRingPalette, working: Bool = false) -> some View {
+        usageRing(usage, palette: palette, working: working)
             .help(usageHelp(name, usage: usage, working: working))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(name)\(working ? " 正在工作，" : " ")剩余用量 \(usage.compactSummary)")
             .accessibilityIdentifier("usage.\(name)")
     }
 
-    private func usageRing(_ usage: CodexUsageSnapshot, accent: Color, working: Bool) -> some View {
+    private func usageRing(_ usage: CodexUsageSnapshot, palette: UsageRingPalette, working: Bool) -> some View {
         ZStack {
             Circle().stroke(.white.opacity(0.12), lineWidth: 2)
             if usage.status == .available, let remaining = usage.primary?.remainingPercent {
                 let fraction = CGFloat(min(100, max(0, remaining))) / 100
-                if working && fraction > 0 {
-                    WorkingQuotaArc(fraction: fraction, accent: accent)
-                } else {
+                if working {
+                    WorkingQuotaArc(fraction: fraction, palette: palette)
+                } else if fraction > 0 {
                     Circle()
                         .trim(from: 0, to: fraction)
-                        .stroke(accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .stroke(palette.idle, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                 }
             } else {
+                if working { WorkingQuotaArc(fraction: 0, palette: palette) }
                 Text(usage.status == .loading ? "·" : "—")
                     .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(statusColor(usage, accent: accent))
+                    .foregroundStyle(statusColor(usage, accent: palette.idle))
             }
         }
         .frame(width: 12, height: 12)
@@ -298,14 +297,6 @@ struct JunimoSurfaceView: View {
             text += "\n更新于 " + date.formatted(date: .abbreviated, time: .shortened)
         }
         return text
-    }
-
-    private var capsuleBackground: LinearGradient {
-        LinearGradient(
-            colors: [Color.black.opacity(0.94), junimoPanelBlack.opacity(0.90)],
-            startPoint: .top,
-            endPoint: .bottom
-        )
     }
 
     private var activitySummary: String {
@@ -333,27 +324,59 @@ struct JunimoSurfaceView: View {
 
 }
 
+// UsageRingPalette 为每个 Agent 定义正常主色与运行态等宽弧头高光，整条剩余弧保持正常亮度与 2pt 等宽质感。
+private struct UsageRingPalette {
+    let idle: Color
+    let workingHead: Color
+
+    static let codex = UsageRingPalette(
+        idle: junimoAccent,
+        workingHead: Color(red: 0.60, green: 0.86, blue: 0.71)
+    )
+    static let grok = UsageRingPalette(
+        idle: Color(red: 0.84, green: 0.72, blue: 0.42),
+        workingHead: Color(red: 0.91, green: 0.81, blue: 0.56)
+    )
+    static let antigravity = UsageRingPalette(
+        idle: Color(red: 0.68, green: 0.58, blue: 0.82),
+        workingHead: Color(red: 0.80, green: 0.71, blue: 0.90)
+    )
+}
+
 private struct WorkingQuotaArc: View {
     let fraction: CGFloat
-    let accent: Color
+    let palette: UsageRingPalette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spinning = false
 
     var body: some View {
         let gradient = AngularGradient(
             stops: [
-                .init(color: accent.opacity(0.52), location: 0),
-                .init(color: accent, location: 0.65),
-                .init(color: Color(red: 0.80, green: 1, blue: 0.89), location: 1)
+                .init(color: palette.idle, location: 0),
+                .init(color: palette.idle, location: 0.73),
+                .init(color: palette.workingHead, location: 0.94)
             ],
-            center: .center, startAngle: .zero, endAngle: .degrees(360 * fraction)
+            center: .center,
+            startAngle: .zero,
+            endAngle: .degrees(360 * fraction)
         )
-        Circle()
-            .trim(from: 0, to: fraction)
-            .stroke(gradient, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-            .rotationEffect(.degrees(spinning && !reduceMotion ? 270 : -90))
-            .animation(reduceMotion ? nil : .linear(duration: 2.4).repeatForever(autoreverses: false),
-                       value: spinning && !reduceMotion)
-            .onAppear { spinning = true }
+        ZStack {
+            if fraction > 0 {
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(gradient, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            } else {
+                // 零额度或无读数时，用沿环移动的点表示工作，中心仍显示原来的额度状态。
+                GeometryReader { geometry in
+                    Circle().fill(palette.workingHead)
+                        .frame(width: 2, height: 2)
+                        .position(x: geometry.size.width, y: geometry.size.height / 2)
+                }
+            }
+        }
+        .rotationEffect(.degrees(spinning && !reduceMotion ? 270 : -90))
+        .animation(reduceMotion ? nil : .linear(duration: 2.4).repeatForever(autoreverses: false),
+                   value: spinning && !reduceMotion)
+        .onAppear { spinning = true }
     }
 }

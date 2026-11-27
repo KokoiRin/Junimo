@@ -1,8 +1,13 @@
 import AppKit
 import SwiftUI
 
-let junimoAccent = Color(red: 0.24, green: 0.95, blue: 0.58)
-let junimoPanelBlack = Color(red: 0.006, green: 0.007, blue: 0.008)
+let junimoAccent = Color(red: 0.36, green: 0.76, blue: 0.55)
+let junimoPanelBlack = Color(red: 0.055, green: 0.060, blue: 0.065)
+let junimoSurfaceFill = LinearGradient(
+    colors: [junimoPanelBlack, Color(red: 0.090, green: 0.098, blue: 0.104)],
+    startPoint: .top,
+    endPoint: .bottom
+)
 
 // JunimoPanelLayout 集中定义控制器与 SwiftUI 必须共享的面板尺寸。
 enum JunimoPanelLayout {
@@ -51,13 +56,7 @@ struct TopAttachedPanelShape: Shape {
 struct JunimoPanelBackground: View {
     var body: some View {
         TopAttachedPanelShape(bottomRadius: 22)
-            .fill(
-                LinearGradient(
-                    colors: [Color.black, junimoPanelBlack, Color.black],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
+            .fill(junimoSurfaceFill)
     }
 }
 

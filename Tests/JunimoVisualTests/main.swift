@@ -424,7 +424,10 @@ final class UsageVisualBackend: ShellBackendClient {
     let appOpen: Bool
     let working: Bool
 
-    init(codexOpen: Bool, grokOpen: Bool, appOpen: Bool, working: Bool) {
+    let codexPercent: Int?
+
+    init(codexOpen: Bool, grokOpen: Bool, appOpen: Bool, working: Bool, codexPercent: Int? = 100) {
+        self.codexPercent = codexPercent
         self.codexOpen = codexOpen
         self.grokOpen = grokOpen
         self.appOpen = appOpen
@@ -435,50 +438,67 @@ final class UsageVisualBackend: ShellBackendClient {
     func loadState() async throws -> SurfaceState {
         SurfaceState(revision: 1,
             antigravity: AntigravitySnapshot(isAppRunning: appOpen, isWorking: working, weeklyQuota: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 92, windowDurationMinutes: 10080))),
-            codex: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 100, windowDurationMinutes: 10080), isAppRunning: codexOpen),
+            codex: CodexUsageSnapshot(status: codexPercent == nil ? .unavailable : .available,
+                primary: codexPercent.map { CodexUsageWindow(remainingPercent: $0, windowDurationMinutes: 10080) }, isAppRunning: codexOpen),
             grok: CodexUsageSnapshot(status: .available, primary: CodexUsageWindow(remainingPercent: 100, windowDurationMinutes: 10080), isAppRunning: grokOpen),
-            activity: CodexActivitySnapshot(status: .available, completionEvent: CodexCompletionEvent(
+            activity: CodexActivitySnapshot(status: .available, isWorking: working, completionEvent: CodexCompletionEvent(
                 id: "visual-long-task", threadId: "visual-thread",
                 title: "一个很长的任务标题应当让出空间，确保两个来源的剩余百分比始终完整显示而不被截断",
                 completedAt: 1)))
     }
 }
 
-// Codex、Grok Bot 与 Antigravity 三个圆环均仅在各自运行时显示，未运行时即使已有额度缓存也应隐藏，折叠和展开的表现一致。
+// Codex（薄荷绿）、Grok Bot（金黄）与 Antigravity（紫）三个圆环均仅在各自运行时显示，未运行时即使已有额度缓存也应隐藏，折叠和展开的表现一致。
 @MainActor
-func testUsageRingsRender(codexOpen: Bool, grokOpen: Bool, appOpen: Bool, working: Bool) async {
-    let state = ShellState(backend: UsageVisualBackend(codexOpen: codexOpen, grokOpen: grokOpen, appOpen: appOpen, working: working))
+func testUsageRingsRender(codexOpen: Bool, grokOpen: Bool, appOpen: Bool, working: Bool, codexPercent: Int? = 100) async {
+    let state = ShellState(backend: UsageVisualBackend(codexOpen: codexOpen, grokOpen: grokOpen, appOpen: appOpen, working: working, codexPercent: codexPercent))
     state.start()
     defer { state.stop() }
     for _ in 0..<100 {
-        if state.surfaceState.codex.status == .available { break }
+        if state.surfaceState.revision == 1 { break }
         try? await Task.sleep(nanoseconds: 10_000_000)
     }
-    guard state.surfaceState.codex.status == .available else { fail("usage fixture did not load") }
+    guard state.surfaceState.revision == 1 else { fail("usage fixture did not load") }
     for expanded in [false, true] {
         if expanded { state.expand() }
         let size = expanded
             ? CGSize(width: JunimoPanelLayout.expandedWidth, height: JunimoPanelLayout.expandedHeight)
             : CGSize(width: JunimoPanelLayout.collapsedCapsuleLaneWidth(showsCodex: codexOpen, showsGrok: grokOpen, showsAntigravity: appOpen) + JunimoPanelLayout.collapsedNotchClearance * 2, height: 33)
         let bitmap = render(JunimoSurfaceView(state: state, launcher: QuickLauncher(workspace: VisualFakeWorkspace())).frame(width: size.width, height: size.height), size: size)
-        var green = 0
-        var blue = 0
+        var mint = 0
+        var brightNeutral = 0
+        var highlight = 0
+        var yellow = 0
         var purple = 0
         for x in 0..<bitmap.pixelsWide {
             for y in 0..<bitmap.pixelsHigh {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB), color.alphaComponent > 0.5 else { continue }
-                if color.greenComponent > 0.65 && color.redComponent < 0.45 && color.blueComponent < 0.7 { green += 1 }
+                let minChannel = min(color.redComponent, color.greenComponent, color.blueComponent)
+                let maxChannel = max(color.redComponent, color.greenComponent, color.blueComponent)
+                if color.greenComponent > 0.70 && color.redComponent < 0.48 && color.blueComponent < 0.72 { mint += 1 }
+                if minChannel > 0.85 && maxChannel - minChannel < 0.10 { brightNeutral += 1 }
+                if color.redComponent > 0.49 && color.greenComponent > 0.76 && color.greenComponent > color.blueComponent + 0.08 && color.blueComponent > color.redComponent + 0.05 { highlight += 1 }
+                if color.redComponent > 0.75 && color.greenComponent > 0.60 && color.blueComponent < 0.48 { yellow += 1 }
                 if color.redComponent > 0.5 && color.redComponent > color.greenComponent + 0.05 && color.blueComponent > color.redComponent + 0.06 { purple += 1 }
-                if color.blueComponent > 0.75 && color.redComponent < 0.6 && color.greenComponent > 0.5 && color.greenComponent < 0.85 { blue += 1 }
             }
         }
         if !expanded {
-            guard codexOpen ? green > 8 : green == 0 else { fail("unexpected Codex ring visibility: codexOpen=\(codexOpen) green=\(green)") }
+            guard brightNeutral == 0 else { fail("折叠圆环出现了过亮的白色高光") }
+            if codexOpen && (codexPercent ?? 0) > 0 {
+                guard mint > 8 else { fail("Codex 薄荷绿弧身不可见") }
+                if !grokOpen && !appOpen {
+                    guard working ? highlight >= 2 : highlight == 0 else { fail("Codex 弧头高光异常，浅绿像素 \(highlight)") }
+                }
+            } else {
+                let showsWorkDot = codexOpen && working
+                guard showsWorkDot == (highlight > 0) else { fail("工作点显示异常，浅绿像素 \(highlight)") }
+            }
         }
-        guard grokOpen ? blue > 8 : blue == 0 else { fail("unexpected Grok ring visibility: grokOpen=\(grokOpen) blue=\(blue)") }
-        guard appOpen ? purple > 3 : purple == 0 else { fail("unexpected Antigravity ring visibility") }
-        guard codexOpen && grokOpen && appOpen && working else { continue }
-        let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/direct/usage-\(expanded ? "expanded" : "collapsed").png")
+        guard grokOpen ? yellow > 8 : yellow == 0 else { fail("unexpected Grok yellow ring visibility: grokOpen=\(grokOpen) yellow=\(yellow)") }
+        guard appOpen ? purple > 3 : purple == 0 else { fail("unexpected Antigravity purple ring visibility: appOpen=\(appOpen) purple=\(purple)") }
+        guard codexOpen && grokOpen && appOpen else { continue }
+        let suffix = working ? "working" : "idle"
+        let path = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/direct/usage-\(expanded ? "expanded" : "collapsed")-\(suffix).png")
         guard let png = bitmap.representation(using: .png, properties: [:]) else { fail("usage preview could not encode") }
         do { try png.write(to: path) } catch { fail("usage preview could not save") }
     }
@@ -498,9 +518,18 @@ Task { @MainActor in
     testAppBarCapsuleHitTesting()
     await testUsageRingsRender(codexOpen: false, grokOpen: false, appOpen: false, working: false)
     await testUsageRingsRender(codexOpen: true, grokOpen: false, appOpen: false, working: false)
+    // 满额和半额工作时，折叠环都应同时画出薄荷绿弧身和可分辨的浅绿弧头。
+    for percent in [100, 50] {
+        await testUsageRingsRender(codexOpen: true, grokOpen: false, appOpen: false, working: true, codexPercent: percent)
+    }
     await testUsageRingsRender(codexOpen: true, grokOpen: true, appOpen: false, working: false)
     await testUsageRingsRender(codexOpen: true, grokOpen: true, appOpen: true, working: false)
     await testUsageRingsRender(codexOpen: true, grokOpen: true, appOpen: true, working: true)
+    // 工作时额度为零或读取失败仍有浅绿工作点；工作结束后不再显示工作点。
+    for percent: Int? in [0, nil] {
+        await testUsageRingsRender(codexOpen: true, grokOpen: false, appOpen: false, working: true, codexPercent: percent)
+        await testUsageRingsRender(codexOpen: true, grokOpen: false, appOpen: false, working: false, codexPercent: percent)
+    }
     testSwipePermissionRecovery()
     testCommandSwipeConsumesOneGesture()
     testCommandSwipeLeavesOtherInputAlone()
