@@ -66,12 +66,18 @@ public struct CodexCompletionEvent: Codable, Equatable {
     public var threadId: String
     public var title: String
     public var completedAt: Int64
+    public var notifyUntil: Int64?
 
-    public init(id: String, threadId: String, title: String, completedAt: Int64) {
+    public init(id: String, threadId: String, title: String, completedAt: Int64, notifyUntil: Int64? = nil) {
         self.id = id
         self.threadId = threadId
         self.title = title
         self.completedAt = completedAt
+        self.notifyUntil = notifyUntil
+    }
+
+    public func canNotify(at seconds: Int64) -> Bool {
+        notifyUntil.map { seconds <= $0 } ?? true
     }
 }
 

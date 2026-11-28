@@ -3,6 +3,7 @@ package codexactivity
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -43,7 +44,7 @@ type Thread struct {
 	Name      string
 	Preview   string
 	UpdatedAt int64
-	Turns     []Turn
+	Turns     []Turn // thread/turns/list 按轮次从新到旧返回。
 }
 
 // CompletionEvent 表示一个可稳定去重的 Codex 任务完成事实。
@@ -52,6 +53,7 @@ type CompletionEvent struct {
 	ThreadID    string `json:"threadId"`
 	Title       string `json:"title"`
 	CompletedAt int64  `json:"completedAt"`
+	NotifyUntil int64  `json:"notifyUntil,omitempty"`
 }
 
 // Snapshot 是后端组合状态公开的 Codex 活动快照。
@@ -181,12 +183,13 @@ func (monitor *Monitor) Refresh(ctx context.Context) {
 		monitor.seen[event.ID] = struct{}{}
 	}
 	monitor.lastSuccessfulScanAt = now
-	monitor.pending = publishablePendingEvents(monitor.pending, threads, now)
+	monitor.pending = publishablePendingEvents(monitor.pending, candidates, now)
 	monitor.snapshot.Status = StatusAvailable
 	monitor.snapshot.Message = ""
 	if len(monitor.pending) > 0 {
 		event := monitor.pending[0]
 		monitor.pending = monitor.pending[1:]
+		event.NotifyUntil = event.CompletedAt + int64(completionFreshnessWindow/time.Second)
 		monitor.snapshot.CompletionEvent = &event
 	}
 	changed := !activitySnapshotsEqual(previous, monitor.snapshot)
@@ -207,57 +210,36 @@ func activitySnapshotsEqual(a, b Snapshot) bool {
 }
 
 // publishablePendingEvents 在真正发布前再次检查队列，防止等待期间已继续运行的会话收到迟到提醒。
-func publishablePendingEvents(events []CompletionEvent, threads []Thread, now int64) []CompletionEvent {
-	runningThreads := make(map[string]struct{})
-	for _, thread := range threads {
-		for _, turn := range thread.Turns {
-			if turn.Status == TurnStatusInProgress {
-				runningThreads[thread.ID] = struct{}{}
-				break
-			}
-		}
+func publishablePendingEvents(events, candidates []CompletionEvent, now int64) []CompletionEvent {
+	latest := make(map[string]string, len(candidates))
+	for _, candidate := range candidates {
+		latest[candidate.ThreadID] = candidate.ID
 	}
-
 	publishable := events[:0]
 	for _, event := range events {
-		if _, running := runningThreads[event.ThreadID]; running {
-			continue
+		if latest[event.ThreadID] == event.ID && isFreshCompletion(event, 0, now) {
+			publishable = append(publishable, event)
 		}
-		if !isFreshCompletion(event, 0, now) {
-			continue
-		}
-		publishable = append(publishable, event)
 	}
 	return publishable
 }
 
-// latestIdleCompletionEvents 每个空闲会话只保留最新完成，避免历史 turn 补发和继续对话后的迟到提醒。
+// 每个会话只有最新轮次可以触发提醒，后续失败或中断同样使前一轮的成功提醒失效。
 func latestIdleCompletionEvents(threads []Thread) []CompletionEvent {
-	events := make([]CompletionEvent, 0, len(threads))
+	var events []CompletionEvent
 	for _, thread := range threads {
-		var latest *Turn
-		running := false
-		for index := range thread.Turns {
-			turn := &thread.Turns[index]
-			if turn.Status == TurnStatusInProgress {
-				running = true
-			}
-			if turn.Status != TurnStatusCompleted || turn.ID == "" {
-				continue
-			}
-			if latest == nil || turn.CompletedAt > latest.CompletedAt ||
-				(turn.CompletedAt == latest.CompletedAt && turn.ID > latest.ID) {
-				latest = turn
-			}
+		if len(thread.Turns) == 0 {
+			continue
 		}
-		if running || latest == nil {
+		latest := thread.Turns[0]
+		if latest.Status != TurnStatusCompleted || latest.ID == "" {
+			continue
+		}
+		if slices.ContainsFunc(thread.Turns[1:], func(turn Turn) bool { return turn.Status == TurnStatusInProgress }) {
 			continue
 		}
 		events = append(events, CompletionEvent{
-			ID:          latest.ID,
-			ThreadID:    thread.ID,
-			Title:       threadTitle(thread),
-			CompletedAt: latest.CompletedAt,
+			ID: latest.ID, ThreadID: thread.ID, Title: threadTitle(thread), CompletedAt: latest.CompletedAt,
 		})
 	}
 	sortCompletionEvents(events)

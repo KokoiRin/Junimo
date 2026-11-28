@@ -1,11 +1,13 @@
 import AppKit
 import JunimoCore
+import OSLog
 import QuartzCore
 import SwiftUI
 
 // 本地开发构建没有 Apple Team ID，macOS 会拒绝系统通知；这里用 Junimo 自己的可点击提示条交付同一行为。
 @MainActor
 final class MacCodexCompletionNotificationService {
+    private let logger = Logger(subsystem: "local.junimo.shell", category: "completion")
     private let workspace = MacQuickLaunchWorkspace()
     private var bannerPanel: NSPanel?
     private var dismissWorkItem: DispatchWorkItem?
@@ -13,12 +15,13 @@ final class MacCodexCompletionNotificationService {
     private struct Banner {
         let heading: String
         let title: String
+        var codexEvent: CodexCompletionEvent? = nil
         let open: () -> Void
     }
     private var pending: [Banner] = []
 
     func notifyCompletion(_ event: CodexCompletionEvent) {
-        enqueue(Banner(heading: "任务完成", title: event.title) { [weak self] in
+        enqueue(Banner(heading: "任务完成", title: event.title, codexEvent: event) { [weak self] in
             self?.openCodexTask(threadID: event.threadId)
         })
     }
@@ -35,8 +38,14 @@ final class MacCodexCompletionNotificationService {
     }
 
     private func showNextBanner() {
-        guard bannerPanel == nil, !pending.isEmpty else { return }
+        guard bannerPanel == nil else { return }
+        let now = Int64(Date().timeIntervalSince1970)
+        pending.removeAll { $0.codexEvent?.canNotify(at: now) == false }
+        guard !pending.isEmpty else { return }
         let banner = pending.removeFirst()
+        if let event = banner.codexEvent {
+            logger.info("Displaying Codex completion \(event.id, privacy: .public)")
+        }
         NSSound(named: NSSound.Name("Hero"))?.play()
 
         let panel = NSPanel(

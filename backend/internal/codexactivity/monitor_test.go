@@ -78,7 +78,7 @@ func TestMonitorPublishesNewCompletedTurn(t *testing.T) {
 	if event == nil {
 		t.Fatal("completion event = nil, want new completed turn")
 	}
-	if event.ID != "turn-2" || event.ThreadID != "thread-2" || event.Title != "整理快捷入口" || event.CompletedAt != 20 {
+	if event.ID != "turn-2" || event.ThreadID != "thread-2" || event.Title != "整理快捷入口" || event.CompletedAt != 20 || event.NotifyUntil != 35 {
 		t.Fatalf("completion event = %#v", event)
 	}
 }
@@ -191,8 +191,8 @@ func TestMonitorDropsQueuedCompletionWhenThreadStartsRunningAgain(t *testing.T) 
 			ID:   "thread-queued",
 			Name: "排队等待",
 			Turns: []Turn{
-				{ID: "turn-queued", Status: TurnStatusCompleted, CompletedAt: 102},
 				{ID: "turn-running", Status: TurnStatusInProgress},
+				{ID: "turn-queued", Status: TurnStatusCompleted, CompletedAt: 102},
 			},
 		},
 	}, nil)
@@ -236,8 +236,8 @@ func TestMonitorSuppressesCompletionWhenThreadIsAlreadyRunningAgain(t *testing.T
 		ID:   "thread-active",
 		Name: "继续对话",
 		Turns: []Turn{
-			{ID: "turn-completed", Status: TurnStatusCompleted, CompletedAt: 102},
 			{ID: "turn-running", Status: TurnStatusInProgress},
+			{ID: "turn-completed", Status: TurnStatusCompleted, CompletedAt: 102},
 		},
 	}}, nil)
 	monitor.Refresh(context.Background())
@@ -265,8 +265,8 @@ func TestMonitorPublishesOnlyLatestCompletionFromOneThread(t *testing.T) {
 		ID:   "thread-many-turns",
 		Name: "连续任务",
 		Turns: []Turn{
-			{ID: "turn-old", Status: TurnStatusCompleted, CompletedAt: 90},
 			{ID: "turn-latest", Status: TurnStatusCompleted, CompletedAt: 102},
+			{ID: "turn-old", Status: TurnStatusCompleted, CompletedAt: 90},
 		},
 	}}, nil)
 	monitor.Refresh(context.Background())
@@ -371,4 +371,17 @@ func waitForActivityStatus(t *testing.T, monitor *Monitor, status Status) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("status = %q, want %q", monitor.Snapshot().Status, status)
+}
+
+// 一轮刚成功但新一轮已失败或中断时，首次扫描和队列复查都应忽略前一轮成功记录。
+func TestNewerUnsuccessfulTurnSupersedesCompletion(t *testing.T) {
+	for _, status := range []TurnStatus{TurnStatusInterrupted, TurnStatusFailed} {
+		thread := completedThread("thread", "older", "任务", 101)
+		pending := latestIdleCompletionEvents([]Thread{thread})
+		thread.Turns = append([]Turn{{ID: "newer", Status: status}}, thread.Turns...)
+		candidates := latestIdleCompletionEvents([]Thread{thread})
+		if len(pending) != 1 || len(candidates) != 0 || len(publishablePendingEvents(pending, candidates, 102)) != 0 {
+			t.Fatalf("新一轮为 %s 时，上一轮仍可投递", status)
+		}
+	}
 }

@@ -1,45 +1,46 @@
 import Foundation
 
-// CodexCompletionNotificationGate 用稳定 turn ID 阻止同一后端事件被重复轮询投递。
+private struct DeliveredEventIDs {
+    let capacity: Int
+    private var order: [String] = []
+    private var ids: Set<String> = []
+
+    init(capacity: Int = 512) { self.capacity = max(1, capacity) }
+
+    mutating func record(_ id: String) -> Bool {
+        guard ids.insert(id).inserted else { return false }
+        order.append(id)
+        return true
+    }
+
+    mutating func trim() {
+        let overflow = order.count - capacity
+        guard overflow > 0 else { return }
+        for id in order.prefix(overflow) { ids.remove(id) }
+        order.removeFirst(overflow)
+    }
+}
+
 public struct CodexCompletionNotificationGate {
-    private var lastObservedEventID: String?
+    private var delivered = DeliveredEventIDs()
 
     public init() {}
 
-    // 历史任务基线由 Go 负责；Swift 收到第一个真实完成事件时应立即投递。
-    public mutating func observe(_ event: CodexCompletionEvent?) -> CodexCompletionEvent? {
-        guard let event, event.id != lastObservedEventID else {
-            return nil
-        }
-        lastObservedEventID = event.id
+    public mutating func observe(_ event: CodexCompletionEvent?, now: Int64 = Int64(Date().timeIntervalSince1970)) -> CodexCompletionEvent? {
+        guard let event, event.canNotify(at: now), delivered.record(event.id) else { return nil }
+        delivered.trim()
         return event
     }
 }
 
-// AntigravityCompletionNotificationGate 使用有界集合对 Antigravity 完成事件去重，避免在 AppKit 壳层维护线性数组。
 public struct AntigravityCompletionNotificationGate {
-    private let capacity: Int
-    private var seenOrder: [String] = []
-    private var seenSet: Set<String> = []
+    private var delivered: DeliveredEventIDs
 
-    public init(capacity: Int = 512) {
-        self.capacity = max(1, capacity)
-    }
+    public init(capacity: Int = 512) { delivered = DeliveredEventIDs(capacity: capacity) }
 
     public mutating func observe(_ events: [AntigravityCompletion]?) -> [AntigravityCompletion] {
-        guard let events, !events.isEmpty else { return [] }
-        var fresh: [AntigravityCompletion] = []
-        for event in events where seenSet.insert(event.id).inserted {
-            seenOrder.append(event.id)
-            fresh.append(event)
-        }
-        if seenOrder.count > capacity {
-            let overflow = seenOrder.count - capacity
-            for removed in seenOrder.prefix(overflow) {
-                seenSet.remove(removed)
-            }
-            seenOrder.removeFirst(overflow)
-        }
+        let fresh = events?.filter { delivered.record($0.id) } ?? []
+        delivered.trim()
         return fresh
     }
 }

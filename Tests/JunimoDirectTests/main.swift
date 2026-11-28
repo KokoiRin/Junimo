@@ -69,6 +69,15 @@ expect(gate.observe(nil) == nil, "An empty poll should not notify")
 let next = CodexCompletionEvent(id: "turn-next", threadId: "thread-next", title: "下一个任务", completedAt: 3)
 expect(gate.observe(next) == next, "A different stable turn should notify")
 
+// 两个不同轮次都提醒后，重连读到先前轮次的快照不能再次弹窗。
+expect(gate.observe(fresh) == nil, "重放旧轮次不能再次提醒")
+
+// 后端设定的最后一秒仍可展示，过期后即使是首次收到或已在队列中等候，也应静默。
+let timed = CodexCompletionEvent(id: "timed", threadId: "thread", title: "排队任务", completedAt: 10, notifyUntil: 25)
+var recovered = CodexCompletionNotificationGate()
+expect(timed.canNotify(at: 25) && !timed.canNotify(at: 26), "横幅展示前必须核对有效期")
+expect(recovered.observe(timed, now: 26) == nil, "过期的首个快照不能提醒")
+
 // Antigravity 通知门应按到达顺序过滤重复事件，并在超过容量上限时淘汰最早记录。
 var gravityGate = AntigravityCompletionNotificationGate(capacity: 2)
 let g1 = AntigravityCompletion(id: "ag-1", title: "任务一")
