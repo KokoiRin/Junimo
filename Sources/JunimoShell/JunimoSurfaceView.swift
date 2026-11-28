@@ -140,14 +140,14 @@ struct JunimoSurfaceView: View {
                 usageRing(weekly, palette: .antigravity, working: state.surfaceState.antigravity?.isWorking == true)
             } else {
                 ZStack {
-                    Circle().stroke(UsageRingPalette.antigravity.idle.opacity(0.38), lineWidth: 2)
+                    Circle().strokeBorder(UsageRingPalette.antigravity.idle.opacity(0.38), lineWidth: ringStroke)
                     if state.surfaceState.antigravity?.isWorking == true {
                         WorkingQuotaArc(fraction: 0.35, palette: .antigravity)
                     }
                 }
             }
         }
-        .frame(width: 12, height: 12)
+        .frame(width: ringDiameter, height: ringDiameter)
         .help(antigravitySummary)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(antigravitySummary)
@@ -232,7 +232,7 @@ struct JunimoSurfaceView: View {
     }
 
     private var agentUsageCapsule: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             if state.surfaceState.showsCodex {
                 compactUsage(name: "Codex", usage: state.surfaceState.codex, palette: .codex, working: codexWorking)
             }
@@ -258,15 +258,15 @@ struct JunimoSurfaceView: View {
 
     private func usageRing(_ usage: CodexUsageSnapshot, palette: UsageRingPalette, working: Bool) -> some View {
         ZStack {
-            Circle().stroke(.white.opacity(0.12), lineWidth: 2)
+            Circle().strokeBorder(.white.opacity(0.12), lineWidth: ringStroke)
             if usage.status == .available, let remaining = usage.primary?.remainingPercent {
                 let fraction = CGFloat(min(100, max(0, remaining))) / 100
                 if working {
                     WorkingQuotaArc(fraction: fraction, palette: palette)
                 } else if fraction > 0 {
-                    Circle()
+                    Circle().inset(by: ringStroke / 2)
                         .trim(from: 0, to: fraction)
-                        .stroke(palette.idle, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .stroke(palette.idle, style: StrokeStyle(lineWidth: ringStroke, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                 }
             } else {
@@ -276,7 +276,7 @@ struct JunimoSurfaceView: View {
                     .foregroundStyle(statusColor(usage, accent: palette.idle))
             }
         }
-        .frame(width: 12, height: 12)
+        .frame(width: ringDiameter, height: ringDiameter)
     }
 
     private func statusColor(_ usage: CodexUsageSnapshot, accent: Color) -> Color {
@@ -324,22 +324,24 @@ struct JunimoSurfaceView: View {
 
 }
 
-// UsageRingPalette 为每个 Agent 定义正常主色与运行态等宽弧头高光，整条剩余弧保持正常亮度与 2pt 等宽质感。
-private struct UsageRingPalette {
+private let ringDiameter: CGFloat = 16
+private let ringStroke: CGFloat = 2.5
+
+struct UsageRingPalette {
     let idle: Color
     let workingHead: Color
 
     static let codex = UsageRingPalette(
-        idle: junimoAccent,
-        workingHead: Color(red: 0.60, green: 0.86, blue: 0.71)
+        idle: Color(red: 0.27, green: 0.755, blue: 0.49),
+        workingHead: Color(red: 0.68, green: 0.93, blue: 0.78)
     )
     static let grok = UsageRingPalette(
-        idle: Color(red: 0.84, green: 0.72, blue: 0.42),
-        workingHead: Color(red: 0.91, green: 0.81, blue: 0.56)
+        idle: Color(red: 0.80, green: 0.68, blue: 0.36),
+        workingHead: Color(red: 0.95, green: 0.86, blue: 0.62)
     )
     static let antigravity = UsageRingPalette(
-        idle: Color(red: 0.68, green: 0.58, blue: 0.82),
-        workingHead: Color(red: 0.80, green: 0.71, blue: 0.90)
+        idle: Color(red: 0.70, green: 0.62, blue: 0.83),
+        workingHead: Color(red: 0.86, green: 0.76, blue: 0.96)
     )
 }
 
@@ -350,33 +352,54 @@ private struct WorkingQuotaArc: View {
     @State private var spinning = false
 
     var body: some View {
-        let gradient = AngularGradient(
-            stops: [
-                .init(color: palette.idle, location: 0),
-                .init(color: palette.idle, location: 0.73),
-                .init(color: palette.workingHead, location: 0.94)
-            ],
-            center: .center,
-            startAngle: .zero,
-            endAngle: .degrees(360 * fraction)
-        )
-        ZStack {
-            if fraction > 0 {
-                Circle()
-                    .trim(from: 0, to: fraction)
-                    .stroke(gradient, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-            } else {
-                // 零额度或无读数时，用沿环移动的点表示工作，中心仍显示原来的额度状态。
-                GeometryReader { geometry in
-                    Circle().fill(palette.workingHead)
-                        .frame(width: 2, height: 2)
-                        .position(x: geometry.size.width, y: geometry.size.height / 2)
-                }
+        RotatingQuotaStroke(fraction: fraction, palette: palette, degrees: spinning && !reduceMotion ? 270 : -90)
+            .animation(reduceMotion ? nil : .linear(duration: 2.4).repeatForever(autoreverses: false),
+                       value: spinning && !reduceMotion)
+            .onAppear { spinning = true }
+    }
+}
+
+// 在固定画布中沿圆周移动起点，避免旋转已栅格化的小圆环时反复采样边缘。
+struct RotatingQuotaStroke: View, Animatable {
+    let fraction: CGFloat
+    let palette: UsageRingPalette
+    var degrees: Double
+
+    var animatableData: Double {
+        get { degrees }
+        set { degrees = newValue }
+    }
+
+    var body: some View {
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let radius = (min(size.width, size.height) - ringStroke) / 2
+            let start = Angle.degrees(degrees)
+            let end = Angle.degrees(degrees + 360 * fraction)
+            func point(at angle: Angle) -> CGPoint {
+                CGPoint(x: center.x + radius * cos(angle.radians), y: center.y + radius * sin(angle.radians))
             }
+            let tip = point(at: end)
+            guard fraction > 0 else {
+                let dot = CGRect(x: tip.x - ringStroke / 2, y: tip.y - ringStroke / 2, width: ringStroke, height: ringStroke)
+                context.fill(Path(ellipseIn: dot), with: .color(palette.workingHead))
+                return
+            }
+
+            let style = StrokeStyle(lineWidth: ringStroke, lineCap: .round)
+            var arc = Path()
+            arc.addArc(center: center, radius: radius, startAngle: start, endAngle: end, clockwise: false)
+            context.stroke(arc, with: .color(palette.idle), style: style)
+
+            // 只在前端短弧内沿弦渐变，尾部圆角始终取弧身色。
+            let headStart = Angle.degrees(end.degrees - min(54, 90 * fraction))
+            var head = Path()
+            head.addArc(center: center, radius: radius, startAngle: headStart, endAngle: end, clockwise: false)
+            let highlight = Gradient(stops: [
+                .init(color: palette.idle, location: 0),
+                .init(color: palette.workingHead, location: 0.8)
+            ])
+            context.stroke(head, with: .linearGradient(highlight, startPoint: point(at: headStart), endPoint: tip), style: style)
         }
-        .rotationEffect(.degrees(spinning && !reduceMotion ? 270 : -90))
-        .animation(reduceMotion ? nil : .linear(duration: 2.4).repeatForever(autoreverses: false),
-                   value: spinning && !reduceMotion)
-        .onAppear { spinning = true }
     }
 }

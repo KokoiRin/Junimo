@@ -475,9 +475,9 @@ func testUsageRingsRender(codexOpen: Bool, grokOpen: Bool, appOpen: Bool, workin
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB), color.alphaComponent > 0.5 else { continue }
                 let minChannel = min(color.redComponent, color.greenComponent, color.blueComponent)
                 let maxChannel = max(color.redComponent, color.greenComponent, color.blueComponent)
-                if color.greenComponent > 0.70 && color.redComponent < 0.48 && color.blueComponent < 0.72 { mint += 1 }
+                if color.greenComponent > 0.62 && color.redComponent < 0.44 && color.blueComponent < 0.72 { mint += 1 }
                 if minChannel > 0.85 && maxChannel - minChannel < 0.10 { brightNeutral += 1 }
-                if color.redComponent > 0.49 && color.greenComponent > 0.76 && color.greenComponent > color.blueComponent + 0.08 && color.blueComponent > color.redComponent + 0.05 { highlight += 1 }
+                if color.redComponent > 0.54 && color.greenComponent > 0.81 && color.greenComponent > color.blueComponent + 0.08 && color.blueComponent > color.redComponent + 0.05 { highlight += 1 }
                 if color.redComponent > 0.75 && color.greenComponent > 0.60 && color.blueComponent < 0.48 { yellow += 1 }
                 if color.redComponent > 0.5 && color.redComponent > color.greenComponent + 0.05 && color.blueComponent > color.redComponent + 0.06 { purple += 1 }
             }
@@ -504,6 +504,33 @@ func testUsageRingsRender(codexOpen: Bool, grokOpen: Bool, appOpen: Bool, workin
     }
 }
 
+// 半圈绿色工作弧转到相反的两个方向时，亮色应随弧头换边，尾部圆角始终保留弧身的绿色。
+@MainActor
+func testOnlyLeadingCapIsHighlighted() {
+    let size = CGSize(width: 16, height: 16)
+    for degrees in [0.0, 180.0] {
+        let stroke = RotatingQuotaStroke(fraction: 0.5, palette: .codex, degrees: degrees)
+        let bitmap = render(stroke.frame(width: size.width, height: size.height), size: size)
+        var headPixels = 0
+        var tailPixels = 0
+        for x in 0..<bitmap.pixelsWide {
+            let unitX = (CGFloat(x) + 0.5) / CGFloat(bitmap.pixelsWide)
+            guard unitX < 0.2 || unitX > 0.8 else { continue }
+            for y in 0..<bitmap.pixelsHigh {
+                let unitY = (CGFloat(y) + 0.5) / CGFloat(bitmap.pixelsHigh)
+                guard abs(unitY - 0.5) < 0.08,
+                      let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      color.alphaComponent > 0.8, color.redComponent > 0.53,
+                      color.greenComponent > 0.82 else { continue }
+                if (unitX < 0.5) == (degrees == 0) { headPixels += 1 } else { tailPixels += 1 }
+            }
+        }
+        guard headPixels > 0 && tailPixels == 0 else {
+            fail("工作弧转到 \(degrees)° 时，弧头有 \(headPixels) 个亮像素，弧尾有 \(tailPixels) 个")
+        }
+    }
+}
+
 // 胶囊命中计算应对中心与直边内部返回 true，对圆角外侧和越界坐标返回 false，与 AppKit 视觉轮廓一致。
 func testAppBarCapsuleHitTesting() {
     let size = NSSize(width: 120, height: 30)
@@ -515,6 +542,7 @@ func testAppBarCapsuleHitTesting() {
 }
 
 Task { @MainActor in
+    testOnlyLeadingCapIsHighlighted()
     testAppBarCapsuleHitTesting()
     await testUsageRingsRender(codexOpen: false, grokOpen: false, appOpen: false, working: false)
     await testUsageRingsRender(codexOpen: true, grokOpen: false, appOpen: false, working: false)
